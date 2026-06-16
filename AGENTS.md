@@ -6,6 +6,14 @@ This repository starts from the MEDS reference-style implementation and is being
 
 The current target is not a generic refactor. It is a cryptographic algorithm modification with a precise mathematical specification. Preserve existing MEDS infrastructure where possible, but replace the original MEDS public-key compression and two-matrix action with the `MEDS2endGen` design described in `meds2end.tex`.
 
+## Algorithm specification priority
+
+The file `docs/meds2end.tex` is the highest-priority specification for the MEDS2endGen algorithm.
+
+When `docs/meds2end.tex`, the original MEDS document, and the current C reference code disagree, follow `docs/meds2end.tex`.
+
+Before modifying KeyGen, Sign, Verify, key formats, signature formats, or the group action implementation, read `docs/meds2end.tex`.
+
 ## Instruction priority for this repository
 
 When working on this repository, use the following priority order:
