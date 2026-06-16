@@ -177,6 +177,8 @@ static int run_phi_tests(void)
 
 static int run_keygen_format_tests(void)
 {
+  const uint8_t guard_value = 0xA5;
+
   if (CRYPTO_PUBLICKEYBYTES != MEDS_PK_BYTES)
   {
     fprintf(stderr, "CRYPTO_PUBLICKEYBYTES != MEDS_PK_BYTES\n");
@@ -186,6 +188,12 @@ static int run_keygen_format_tests(void)
   if (CRYPTO_SECRETKEYBYTES != MEDS_SK_BYTES)
   {
     fprintf(stderr, "CRYPTO_SECRETKEYBYTES != MEDS_SK_BYTES\n");
+    return -1;
+  }
+
+  if (CRYPTO_BYTES != MEDS_SIG_BYTES)
+  {
+    fprintf(stderr, "CRYPTO_BYTES != MEDS_SIG_BYTES\n");
     return -1;
   }
 
@@ -201,13 +209,48 @@ static int run_keygen_format_tests(void)
     return -1;
   }
 
-  uint8_t sk[CRYPTO_SECRETKEYBYTES] = {0};
-  uint8_t pk[CRYPTO_PUBLICKEYBYTES] = {0};
+  if (MEDS_SIG_BYTES != MEDS_RESPONSE_BYTES + MEDS_PATH_BYTES + MEDS_digest_bytes + MEDS_st_salt_bytes)
+  {
+    fprintf(stderr, "MEDS_SIG_BYTES formula mismatch\n");
+    return -1;
+  }
+
+  if (strcmp(MEDS_name, "MEDS9923") == 0)
+  {
+    if (CRYPTO_PUBLICKEYBYTES != 12380 || CRYPTO_SECRETKEYBYTES != 2710 || CRYPTO_BYTES != 14012)
+    {
+      fprintf(stderr, "MEDS9923 byte-size constants mismatch\n");
+      return -1;
+    }
+  }
+
+  uint8_t sk_buf[CRYPTO_SECRETKEYBYTES + 16];
+  uint8_t pk_buf[CRYPTO_PUBLICKEYBYTES + 16];
+  memset(sk_buf, guard_value, sizeof(sk_buf));
+  memset(pk_buf, guard_value, sizeof(pk_buf));
+
+  uint8_t *sk = sk_buf;
+  uint8_t *pk = pk_buf;
 
   if (crypto_sign_keypair(pk, sk) != 0)
   {
     fprintf(stderr, "crypto_sign_keypair failed\n");
     return -1;
+  }
+
+  for (int i = 0; i < 16; i++)
+  {
+    if (sk_buf[CRYPTO_SECRETKEYBYTES + i] != guard_value)
+    {
+      fprintf(stderr, "crypto_sign_keypair wrote past sk buffer\n");
+      return -1;
+    }
+
+    if (pk_buf[CRYPTO_PUBLICKEYBYTES + i] != guard_value)
+    {
+      fprintf(stderr, "crypto_sign_keypair wrote past pk buffer\n");
+      return -1;
+    }
   }
 
   printf("keygen format tests passed\n");
@@ -255,7 +298,7 @@ int main(int argc, char *argv[])
   if (keygen_only)
     return run_keygen_format_tests() == 0 ? 0 : 1;
 
-  char msg[4] = "Test";
+  int negative_tests = 0;
 
   printf("pk:  %i bytes\n", CRYPTO_PUBLICKEYBYTES);
   printf("sk:  %i bytes\n", CRYPTO_SECRETKEYBYTES);
@@ -266,6 +309,11 @@ int main(int argc, char *argv[])
   {
     uint8_t sk[CRYPTO_SECRETKEYBYTES] = {0};
     uint8_t pk[CRYPTO_PUBLICKEYBYTES] = {0};
+    char round_msg[32];
+    int round_msg_len = snprintf(round_msg, sizeof(round_msg), "Test round %i", round);
+
+    if (round_msg_len < 0 || round_msg_len >= (int)sizeof(round_msg))
+      return 1;
 
     time = -cpucycles();
     crypto_sign_keypair(pk, sk);
@@ -273,16 +321,22 @@ int main(int argc, char *argv[])
 
     if (time < keygen_time) keygen_time = time;
 
-    uint8_t sig[CRYPTO_BYTES + sizeof(msg)] = {0};
+    uint8_t sig[CRYPTO_BYTES + sizeof(round_msg)] = {0};
     unsigned long long sig_len = sizeof(sig);
 
     time = -cpucycles();
-    crypto_sign(sig, &sig_len, (const unsigned char *)msg, sizeof(msg), sk);
+    crypto_sign(sig, &sig_len, (const unsigned char *)round_msg, (unsigned long long)round_msg_len, sk);
     time += cpucycles();
 
     if (time < sign_time) sign_time = time;
 
-    unsigned char msg_out[4];
+    if (sig_len != CRYPTO_BYTES + (unsigned long long)round_msg_len)
+    {
+      fprintf(stderr, "crypto_sign returned wrong smlen\n");
+      return 1;
+    }
+
+    unsigned char msg_out[sizeof(round_msg)];
     unsigned long long msg_out_len = sizeof(msg_out);
 
 
@@ -292,15 +346,15 @@ int main(int argc, char *argv[])
 
     if (time < verify_time) verify_time = time;
 
-    if (ret != 0 || msg_out_len != sizeof(msg) || memcmp(msg_out, msg, sizeof(msg)) != 0)
+    if (ret != 0 || msg_out_len != (unsigned long long)round_msg_len || memcmp(msg_out, round_msg, (size_t)round_msg_len) != 0)
     {
       printf("!!! FAILED !!!\n");
       return 1;
     }
 
-    uint8_t sig_bad[CRYPTO_BYTES + sizeof(msg)];
+    uint8_t sig_bad[CRYPTO_BYTES + sizeof(round_msg)];
     uint8_t pk_bad[CRYPTO_PUBLICKEYBYTES];
-    unsigned char tamper_out[sizeof(msg)];
+    unsigned char tamper_out[sizeof(round_msg)];
     unsigned long long tamper_out_len = sizeof(tamper_out);
 
     memcpy(sig_bad, sig, sizeof(sig_bad));
@@ -311,6 +365,7 @@ int main(int argc, char *argv[])
       fprintf(stderr, "tampered response accepted\n");
       return 1;
     }
+    negative_tests++;
 
     memcpy(sig_bad, sig, sizeof(sig_bad));
     sig_bad[MEDS_DIGEST_OFFSET] ^= 1;
@@ -321,6 +376,29 @@ int main(int argc, char *argv[])
       fprintf(stderr, "tampered digest accepted\n");
       return 1;
     }
+    negative_tests++;
+
+    memcpy(sig_bad, sig, sizeof(sig_bad));
+    sig_bad[MEDS_SALT_OFFSET] ^= 1;
+    tamper_out_len = sizeof(tamper_out);
+
+    if (crypto_sign_open(tamper_out, &tamper_out_len, sig_bad, sig_len, pk) == 0)
+    {
+      fprintf(stderr, "tampered salt accepted\n");
+      return 1;
+    }
+    negative_tests++;
+
+    memcpy(sig_bad, sig, sizeof(sig_bad));
+    sig_bad[CRYPTO_BYTES] ^= 1;
+    tamper_out_len = sizeof(tamper_out);
+
+    if (crypto_sign_open(tamper_out, &tamper_out_len, sig_bad, sig_len, pk) == 0)
+    {
+      fprintf(stderr, "tampered message accepted\n");
+      return 1;
+    }
+    negative_tests++;
 
     memcpy(pk_bad, pk, sizeof(pk_bad));
     pk_bad[0] ^= 1;
@@ -331,6 +409,7 @@ int main(int argc, char *argv[])
       fprintf(stderr, "tampered public key accepted\n");
       return 1;
     }
+    negative_tests++;
 
     printf("success\n");
   }
@@ -342,6 +421,7 @@ int main(int argc, char *argv[])
   printf("keygen: %f   (%llu cycles)\n", keygen_time / freq, keygen_time);
   printf("sign:   %f   (%llu cycles)\n", sign_time / freq, sign_time);
   printf("verify: %f   (%llu cycles)\n", verify_time / freq, verify_time);
+  printf("negative tests passed: %i\n", negative_tests);
 
   return 0;
 }
