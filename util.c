@@ -417,3 +417,18 @@ void pi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *G)
   }
 }
 
+#if MEDS_m != MEDS_n || MEDS_k != MEDS_n
+#error "MEDS2endGen phi() assumes MEDS_m == MEDS_n == MEDS_k"
+#endif
+
+void phi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *C, pmod_mat_t *G)
+{
+  pmod_mat_t tmp[MEDS_k * MEDS_m * MEDS_n];
+
+  pi(tmp, A, B, G);
+
+  pmod_mat_mul(Gout,
+      MEDS_k, MEDS_m * MEDS_n,
+      C, MEDS_k, MEDS_k,
+      tmp, MEDS_k, MEDS_m * MEDS_n);
+}

@@ -2,6 +2,7 @@
 #define UTILS_H
 
 #include "params.h"
+#include "fips202.h"
 #include "matrixmod.h"
 
 void XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, int num);
@@ -17,6 +18,6 @@ int parse_hash(uint8_t *digest, int digest_len, uint8_t *h, int len_h);
 int solve(pmod_mat_t *A, pmod_mat_t *B_inv, pmod_mat_t *G0prime, GFq_t Amm);
 
 void pi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *G);
+void phi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *C, pmod_mat_t *G);
 
 #endif
-
