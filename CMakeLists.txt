@@ -34,7 +34,7 @@ set(COMMON_SOURCES
   randombytes.c
 )
 
-set(EXES test bench PQCgenKAT_sign)
+set(EXES bench PQCgenKAT_sign)
 
 file(GLOB KAT_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/PQCsignKAT_*")
 
@@ -52,13 +52,7 @@ foreach(EXE IN LISTS EXES)
   )
 endforeach()
 
-add_custom_target(default ALL DEPENDS test bench PQCgenKAT_sign)
-
-add_custom_target(run_test
-  COMMAND "$<TARGET_FILE:test>"
-  DEPENDS test
-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-)
+add_custom_target(default ALL DEPENDS bench PQCgenKAT_sign)
 
 add_custom_target(run_kat
   COMMAND "$<TARGET_FILE:PQCgenKAT_sign>"

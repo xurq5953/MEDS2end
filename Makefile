@@ -17,11 +17,11 @@ endif
 
 CFLAGS += -I$(OBJDIR) -INIST
 
-EXES = test bench PQCgenKAT_sign
+EXES = bench PQCgenKAT_sign
 
 TARGETS := ${EXES:%=$(OBJDIR)/%}
 
-.PHONY: default clean
+.PHONY: default clean KAT BENCH
 
 default: $(EXES)
 
@@ -43,10 +43,6 @@ $(BUILDOBJ) : $(OBJDIR)/%.o: %.c $(HEADERS) | $(OBJDIR)
 $(TARGETS) : $(OBJDIR)/%: %.c $(BUILDOBJ)
 	$(CC) $(@F).c $(BUILDOBJ) $(CFLAGS) $(LIBS) -o $@
 
-
-TEST: test
-	$(OBJDIR)/test
-
 KAT: PQCgenKAT_sign
 	$(OBJDIR)/PQCgenKAT_sign
 
@@ -55,4 +51,3 @@ BENCH: bench
 
 clean:
 	rm -rf build/ debug/ PQCsignKAT_*
-
