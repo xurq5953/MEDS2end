@@ -20,9 +20,6 @@
 
 #include "matrixmod.h"
 
-#define CEILING(x,y) (((x) + (y) - 1) / (y))
-
-
 int crypto_sign_keypair(
     unsigned char *pk,
     unsigned char *sk
@@ -56,7 +53,7 @@ int crypto_sign_keypair(
   LOG_MAT(G[0], MEDS_k, MEDS_m*MEDS_n);
 
   pmod_mat_t A_inv_data[MEDS_s * MEDS_m * MEDS_m];
-  pmod_mat_t B_inv_data[MEDS_s * MEDS_m * MEDS_m];
+  pmod_mat_t B_inv_data[MEDS_s * MEDS_n * MEDS_n];
 
   pmod_mat_t *A_inv[MEDS_s];
   pmod_mat_t *B_inv[MEDS_s];
@@ -74,56 +71,26 @@ int crypto_sign_keypair(
 
     while (1 == 1) // redo generation for this index until success
     {
-      uint8_t sigma_Ti[MEDS_sec_seed_bytes];
-      uint8_t sigma_a[MEDS_sec_seed_bytes];
+      uint8_t sigma_Ai[MEDS_sec_seed_bytes];
+      uint8_t sigma_Bi[MEDS_sec_seed_bytes];
 
-      XOF((uint8_t*[]){sigma_a, sigma_Ti, sigma},
+      XOF((uint8_t*[]){sigma_Ai, sigma_Bi, sigma},
           (size_t[]){MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes},
           sigma, MEDS_sec_seed_bytes,
           3);
 
-      pmod_mat_t Ti[MEDS_k * MEDS_k];
-
-      rnd_inv_matrix(Ti, MEDS_k, MEDS_k, sigma_Ti, MEDS_sec_seed_bytes);
-
-      GFq_t Amm;
-
-      {
-        keccak_state Amm_shake;
-        shake256_absorb_once(&Amm_shake, sigma_a, MEDS_sec_seed_bytes);
-
-        Amm = rnd_GF(&Amm_shake);
-      }
-
-
-      LOG_MAT(Ti, MEDS_k, MEDS_k);
-      LOG_VAL(Amm);
-
-
-      pmod_mat_t G0prime[MEDS_k * MEDS_m * MEDS_n];
-
-      pmod_mat_mul(G0prime, MEDS_k, MEDS_m * MEDS_n,
-          Ti, MEDS_k, MEDS_k,
-          G[0], MEDS_k, MEDS_m * MEDS_n);
-
-      LOG_MAT(G0prime, MEDS_k, MEDS_m * MEDS_n);
-
-
-      if (solve(A, B_inv[i], G0prime, Amm) < 0)
-      {
-        LOG("no sol");
-        continue;
-      }
-
-      if (pmod_mat_inv(B, B_inv[i], MEDS_n, MEDS_n) < 0)
-      {
-        LOG("no inv B");
-        continue;
-      }
+      rnd_inv_matrix(A, MEDS_m, MEDS_m, sigma_Ai, MEDS_sec_seed_bytes);
+      rnd_inv_matrix(B, MEDS_n, MEDS_n, sigma_Bi, MEDS_sec_seed_bytes);
 
       if (pmod_mat_inv(A_inv[i], A, MEDS_m, MEDS_m) < 0)
       {
         LOG("no inv A_inv");
+        continue;
+      }
+
+      if (pmod_mat_inv(B_inv[i], B, MEDS_n, MEDS_n) < 0)
+      {
+        LOG("no inv B_inv");
         continue;
       }
 
@@ -164,10 +131,7 @@ int crypto_sign_keypair(
 
     for (int si = 1; si < MEDS_s; si++)
     {
-      for (int j = (MEDS_m-1)*MEDS_n; j < MEDS_m*MEDS_n; j++)
-        bs_write(&bs, G[si][MEDS_m*MEDS_n + j], GFq_bits);
-
-      for (int r = 2; r < MEDS_k; r++)
+      for (int r = 0; r < MEDS_k; r++)
         for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
           bs_write(&bs, G[si][r*MEDS_m*MEDS_n + j], GFq_bits);
 
@@ -466,20 +430,9 @@ int crypto_sign_open(
           else
             pmod_mat_set_entry(G[i], MEDS_k, MEDS_m * MEDS_n, r, c, 0);
 
-      for (int j = (MEDS_m-1)*MEDS_n; j < MEDS_m*MEDS_n; j++)
-        G[i][MEDS_m*MEDS_n + j] = bs_read(&bs, GFq_bits);
-
-      for (int r = 2; r < MEDS_k; r++)
+      for (int r = 0; r < MEDS_k; r++)
         for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
           G[i][r*MEDS_m*MEDS_n + j] = bs_read(&bs, GFq_bits);
-
-      for (int ii = 0; ii < MEDS_m; ii++)
-        for (int j = 0; j < MEDS_n; j++)
-          G[i][ii*MEDS_n + j] = ii == j ? 1 : 0;
-
-      for (int ii = 0; ii < MEDS_m-1; ii++)
-        for (int j = 0; j < MEDS_n; j++)
-          G[i][MEDS_m*MEDS_n + ii*MEDS_n + j] = (ii+1) == j ? 1 : 0;
 
       bs_finalize(&bs);
     }
@@ -622,4 +575,3 @@ int crypto_sign_open(
 
   return 0;
 }
-

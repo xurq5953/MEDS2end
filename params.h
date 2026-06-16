@@ -31,9 +31,11 @@
 
 #define MEDS_s_mask 0x00000003
 
-#define MEDS_PK_BYTES 9923
+#define CEILING(x,y) (((x) + (y) - 1) / (y))
+
+#define MEDS_G_BYTES CEILING((MEDS_k * (MEDS_m * MEDS_n - MEDS_k)) * GFq_bits, 8)
+#define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
 #define MEDS_SK_BYTES 1828
 #define MEDS_SIG_BYTES 9896
 
 #endif
-

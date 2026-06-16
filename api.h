@@ -2,7 +2,7 @@
 #define API_H
 
 #define CRYPTO_SECRETKEYBYTES 1828
-#define CRYPTO_PUBLICKEYBYTES 9923
+#define CRYPTO_PUBLICKEYBYTES 11498
 #define CRYPTO_BYTES 9896
 
 #define CRYPTO_ALGNAME "MEDS9923"
@@ -25,4 +25,3 @@ int crypto_sign_open(
   );
 
 #endif
-
