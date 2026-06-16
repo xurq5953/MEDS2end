@@ -1,0 +1,36 @@
+# CMake and Make build outputs
+/build/
+/debug/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Testing/
+
+# Generated MEDS/NIST KAT artifacts
+/PQCsignKAT_*
+
+# Local IDE/editor state
+/.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Native binaries and intermediate files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.pdb
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
