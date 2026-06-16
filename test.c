@@ -287,15 +287,52 @@ int main(int argc, char *argv[])
 
 
     time = -cpucycles();
-    int ret = crypto_sign_open(msg_out, &msg_out_len, sig, sizeof(sig), pk);
+    int ret = crypto_sign_open(msg_out, &msg_out_len, sig, sig_len, pk);
     time += cpucycles();
 
     if (time < verify_time) verify_time = time;
 
-    if (ret == 0)
-      printf("success\n");
-    else
+    if (ret != 0 || msg_out_len != sizeof(msg) || memcmp(msg_out, msg, sizeof(msg)) != 0)
+    {
       printf("!!! FAILED !!!\n");
+      return 1;
+    }
+
+    uint8_t sig_bad[CRYPTO_BYTES + sizeof(msg)];
+    uint8_t pk_bad[CRYPTO_PUBLICKEYBYTES];
+    unsigned char tamper_out[sizeof(msg)];
+    unsigned long long tamper_out_len = sizeof(tamper_out);
+
+    memcpy(sig_bad, sig, sizeof(sig_bad));
+    sig_bad[0] ^= 1;
+
+    if (crypto_sign_open(tamper_out, &tamper_out_len, sig_bad, sig_len, pk) == 0)
+    {
+      fprintf(stderr, "tampered response accepted\n");
+      return 1;
+    }
+
+    memcpy(sig_bad, sig, sizeof(sig_bad));
+    sig_bad[MEDS_DIGEST_OFFSET] ^= 1;
+    tamper_out_len = sizeof(tamper_out);
+
+    if (crypto_sign_open(tamper_out, &tamper_out_len, sig_bad, sig_len, pk) == 0)
+    {
+      fprintf(stderr, "tampered digest accepted\n");
+      return 1;
+    }
+
+    memcpy(pk_bad, pk, sizeof(pk_bad));
+    pk_bad[0] ^= 1;
+    tamper_out_len = sizeof(tamper_out);
+
+    if (crypto_sign_open(tamper_out, &tamper_out_len, sig, sig_len, pk_bad) == 0)
+    {
+      fprintf(stderr, "tampered public key accepted\n");
+      return 1;
+    }
+
+    printf("success\n");
   }
 
   double freq = osfreq();

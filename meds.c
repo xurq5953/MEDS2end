@@ -20,6 +20,36 @@
 
 #include "matrixmod.h"
 
+static void encode_mat_to_bs(bitstream_t *bs, const pmod_mat_t *M, int elem_count)
+{
+  for (int j = 0; j < elem_count; j++)
+    bs_write(bs, M[j], GFq_bits);
+
+  bs_finalize(bs);
+}
+
+static void decode_mat_from_bs(bitstream_t *bs, pmod_mat_t *M, int elem_count)
+{
+  for (int j = 0; j < elem_count; j++)
+    M[j] = bs_read(bs, GFq_bits);
+
+  bs_finalize(bs);
+}
+
+static void encode_G_full(uint8_t out[MEDS_G_BYTES], const pmod_mat_t *G)
+{
+  memset(out, 0, MEDS_G_BYTES);
+
+  bitstream_t bs;
+
+  bs_init(&bs, out, MEDS_G_BYTES);
+
+  for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
+    bs_write(&bs, G[j], GFq_bits);
+
+  bs_finalize(&bs);
+}
+
 static void load_public_key_matrices(pmod_mat_t *G[MEDS_s], const unsigned char *pk)
 {
   rnd_sys_mat(G[0], MEDS_k, MEDS_m*MEDS_n, pk, MEDS_pub_seed_bytes);
@@ -326,15 +356,18 @@ int crypto_sign(
 
 
   pmod_mat_t A_tilde_data[MEDS_t * MEDS_m * MEDS_m];
-  pmod_mat_t B_tilde_data[MEDS_t * MEDS_m * MEDS_m];
+  pmod_mat_t B_tilde_data[MEDS_t * MEDS_n * MEDS_n];
+  pmod_mat_t C_tilde_data[MEDS_t * MEDS_k * MEDS_k];
 
   pmod_mat_t *A_tilde[MEDS_t];
   pmod_mat_t *B_tilde[MEDS_t];
+  pmod_mat_t *C_tilde[MEDS_t];
 
   for (int i = 0; i < MEDS_t; i++)
   {
     A_tilde[i] = &A_tilde_data[i * MEDS_m * MEDS_m];
     B_tilde[i] = &B_tilde_data[i * MEDS_n * MEDS_n];
+    C_tilde[i] = &C_tilde_data[i * MEDS_k * MEDS_k];
   }
 
   keccak_state h_shake;
@@ -342,47 +375,36 @@ int crypto_sign(
 
   for (int i = 0; i < MEDS_t; i++)
   {
-    pmod_mat_t G_tilde_ti[MEDS_k * MEDS_m * MEDS_m];
+    pmod_mat_t G_tilde_ti[MEDS_k * MEDS_m * MEDS_n];
 
-    while (1 == 1)
-    {
-      uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
-      uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
+    uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
+    uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
+    uint8_t sigma_C_tilde_i[MEDS_st_seed_bytes];
 
-      XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
-           (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
-           &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
-           3);
-
-
-      rnd_inv_matrix(A_tilde[i], MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
-      rnd_inv_matrix(B_tilde[i], MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
-
-      LOG_MAT_FMT(A_tilde[i], MEDS_m, MEDS_m, "A_tilde[%i]", i);
-      LOG_MAT_FMT(B_tilde[i], MEDS_n, MEDS_n, "B_tilde[%i]", i);
+    XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, sigma_C_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
+         (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
+         &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
+         4);
 
 
-      pi(G_tilde_ti, A_tilde[i], B_tilde[i], G_0);
+    rnd_inv_matrix(A_tilde[i], MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
+    rnd_inv_matrix(B_tilde[i], MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
+    rnd_inv_matrix(C_tilde[i], MEDS_k, MEDS_k, sigma_C_tilde_i, MEDS_st_seed_bytes);
+
+    LOG_MAT_FMT(A_tilde[i], MEDS_m, MEDS_m, "A_tilde[%i]", i);
+    LOG_MAT_FMT(B_tilde[i], MEDS_n, MEDS_n, "B_tilde[%i]", i);
+    LOG_MAT_FMT(C_tilde[i], MEDS_k, MEDS_k, "C_tilde[%i]", i);
 
 
-      LOG_MAT_FMT(G_tilde_ti, MEDS_k, MEDS_m*MEDS_n, "G_tilde[%i]", i);
+    phi(G_tilde_ti, A_tilde[i], B_tilde[i], C_tilde[i], G_0);
 
-      if (pmod_mat_syst_ct(G_tilde_ti, MEDS_k, MEDS_m*MEDS_n) == 0)
-        break;
-    }
 
     LOG_MAT_FMT(G_tilde_ti, MEDS_k, MEDS_m*MEDS_n, "G_tilde[%i]", i);
 
-    bitstream_t bs;
-    uint8_t bs_buf[CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8)];
-    
-    bs_init(&bs, bs_buf, CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8));
+    uint8_t bs_buf[MEDS_G_BYTES];
 
-    for (int r = 0; r < MEDS_k; r++)
-      for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
-        bs_write(&bs, G_tilde_ti[r * MEDS_m*MEDS_n + j], GFq_bits);
-
-    shake256_absorb(&h_shake, bs_buf, CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8));
+    encode_G_full(bs_buf, G_tilde_ti);
+    shake256_absorb(&h_shake, bs_buf, MEDS_G_BYTES);
   }
 
   shake256_absorb(&h_shake, (uint8_t*)m, mlen);
@@ -405,9 +427,9 @@ int crypto_sign(
 
   bitstream_t bs;
 
-  bs_init(&bs, sm, MEDS_w * (CEILING(MEDS_m*MEDS_m * GFq_bits, 8) + CEILING(MEDS_n*MEDS_n * GFq_bits, 8)));
+  bs_init(&bs, sm, MEDS_RESPONSE_BYTES);
 
-  uint8_t *path = sm + MEDS_w * (CEILING(MEDS_m*MEDS_m * GFq_bits, 8) + CEILING(MEDS_n*MEDS_n * GFq_bits, 8));
+  uint8_t *path = sm + MEDS_RESPONSE_BYTES;
 
   t_hash(stree, alpha, 0, 0);
 
@@ -417,36 +439,26 @@ int crypto_sign(
   {
     if (h[i] > 0)
     {
-      {
-        pmod_mat_t mu[MEDS_m*MEDS_m];
+      pmod_mat_t mu[MEDS_m*MEDS_m];
+      pmod_mat_t nu[MEDS_n*MEDS_n];
+      pmod_mat_t eta[MEDS_k*MEDS_k];
 
-        pmod_mat_mul(mu, MEDS_m, MEDS_m, A_tilde[i], MEDS_m, MEDS_m, A_inv[h[i]], MEDS_m, MEDS_m);
+      pmod_mat_mul(mu, MEDS_m, MEDS_m, A_tilde[i], MEDS_m, MEDS_m, A_inv[h[i]], MEDS_m, MEDS_m);
+      pmod_mat_mul(nu, MEDS_n, MEDS_n, B_inv[h[i]], MEDS_n, MEDS_n, B_tilde[i], MEDS_n, MEDS_n);
+      pmod_mat_mul(eta, MEDS_k, MEDS_k, C_tilde[i], MEDS_k, MEDS_k, C_inv[h[i]], MEDS_k, MEDS_k);
 
-        LOG_MAT(mu, MEDS_m, MEDS_m);
+      LOG_MAT(mu, MEDS_m, MEDS_m);
+      LOG_MAT(nu, MEDS_n, MEDS_n);
+      LOG_MAT(eta, MEDS_k, MEDS_k);
 
-        for (int j = 0; j < MEDS_m*MEDS_m; j++)
-          bs_write(&bs, mu[j], GFq_bits);
-      }
-
-      bs_finalize(&bs);
-
-      {
-        pmod_mat_t nu[MEDS_n*MEDS_n];
-
-        pmod_mat_mul(nu, MEDS_n, MEDS_n, B_inv[h[i]], MEDS_n, MEDS_n, B_tilde[i], MEDS_n, MEDS_n);
-
-        LOG_MAT(nu, MEDS_n, MEDS_n);
-
-        for (int j = 0; j < MEDS_n*MEDS_n; j++)
-          bs_write(&bs, nu[j], GFq_bits);
-      }
-
-      bs_finalize(&bs);
+      encode_mat_to_bs(&bs, mu, MEDS_m*MEDS_m);
+      encode_mat_to_bs(&bs, nu, MEDS_n*MEDS_n);
+      encode_mat_to_bs(&bs, eta, MEDS_k*MEDS_k);
     }
   }
 
-  memcpy(sm + MEDS_SIG_BYTES - MEDS_digest_bytes - MEDS_st_salt_bytes, digest, MEDS_digest_bytes);
-  memcpy(sm + MEDS_SIG_BYTES - MEDS_st_salt_bytes, alpha, MEDS_st_salt_bytes);
+  memcpy(sm + MEDS_DIGEST_OFFSET, digest, MEDS_digest_bytes);
+  memcpy(sm + MEDS_SALT_OFFSET, alpha, MEDS_st_salt_bytes);
   memcpy(sm + MEDS_SIG_BYTES, m, mlen);
 
   *smlen = MEDS_SIG_BYTES + mlen;
@@ -464,6 +476,9 @@ int crypto_sign_open(
 {
   LOG_HEX(sm, smlen);
 
+  if (smlen < MEDS_SIG_BYTES)
+    return -1;
+
   pmod_mat_t G_data[MEDS_k*MEDS_m*MEDS_n * MEDS_s];
   pmod_mat_t *G[MEDS_s];
 
@@ -476,9 +491,9 @@ int crypto_sign_open(
   for (int i = 0; i < MEDS_s; i++)
     LOG_MAT_FMT(G[i], MEDS_k, MEDS_m*MEDS_n, "G[%i]", i);
 
-  uint8_t *digest = (uint8_t*)sm + (MEDS_SIG_BYTES - MEDS_digest_bytes - MEDS_st_salt_bytes);
+  uint8_t *digest = (uint8_t*)sm + MEDS_DIGEST_OFFSET;
 
-  uint8_t *alpha = (uint8_t*)sm + (MEDS_SIG_BYTES - MEDS_st_salt_bytes);
+  uint8_t *alpha = (uint8_t*)sm + MEDS_SALT_OFFSET;
 
   LOG_VEC(digest, MEDS_digest_bytes);
 
@@ -489,9 +504,9 @@ int crypto_sign_open(
 
   bitstream_t bs;
 
-  bs_init(&bs, (uint8_t*)sm, MEDS_w * (CEILING(MEDS_m*MEDS_m * GFq_bits, 8) + CEILING(MEDS_n*MEDS_n * GFq_bits, 8)));
+  bs_init(&bs, (uint8_t*)sm, MEDS_RESPONSE_BYTES);
 
-  uint8_t *path = (uint8_t*)sm + MEDS_w * (CEILING(MEDS_m*MEDS_m * GFq_bits, 8) + CEILING(MEDS_n*MEDS_n * GFq_bits, 8));
+  uint8_t *path = (uint8_t*)sm + MEDS_RESPONSE_BYTES;
 
   uint8_t stree[MEDS_st_seed_bytes * SEED_TREE_size] = {0};
 
@@ -503,6 +518,7 @@ int crypto_sign_open(
 
   pmod_mat_t mu[MEDS_m*MEDS_m];
   pmod_mat_t nu[MEDS_n*MEDS_n];
+  pmod_mat_t eta[MEDS_k*MEDS_k];
 
   keccak_state shake;
   shake256_init(&shake);
@@ -511,83 +527,76 @@ int crypto_sign_open(
   {
     if (h[i] > 0)
     {
-      for (int j = 0; j < MEDS_m*MEDS_m; j++)
-        mu[j] = bs_read(&bs, GFq_bits);
-
-      bs_finalize(&bs);
-
-      for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        nu[j] = bs_read(&bs, GFq_bits);
-
-      bs_finalize(&bs);
+      decode_mat_from_bs(&bs, mu, MEDS_m*MEDS_m);
+      decode_mat_from_bs(&bs, nu, MEDS_n*MEDS_n);
+      decode_mat_from_bs(&bs, eta, MEDS_k*MEDS_k);
 
 
       LOG_MAT_FMT(mu, MEDS_m, MEDS_m, "mu[%i]", i);
       LOG_MAT_FMT(nu, MEDS_n, MEDS_n, "nu[%i]", i);
+      LOG_MAT_FMT(eta, MEDS_k, MEDS_k, "eta[%i]", i);
 
 
-      pi(G_hat_i, mu, nu, G[h[i]]);
+      pmod_mat_t inv_mu[MEDS_m*MEDS_m];
+      pmod_mat_t inv_nu[MEDS_n*MEDS_n];
+      pmod_mat_t inv_eta[MEDS_k*MEDS_k];
+
+      if (pmod_mat_inv(inv_mu, mu, MEDS_m, MEDS_m) < 0)
+        return -1;
+
+      if (pmod_mat_inv(inv_nu, nu, MEDS_n, MEDS_n) < 0)
+        return -1;
+
+      if (pmod_mat_inv(inv_eta, eta, MEDS_k, MEDS_k) < 0)
+        return -1;
 
 
-      LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
-
-      pmod_mat_syst_ct(G_hat_i, MEDS_k, MEDS_m*MEDS_n);
+      phi(G_hat_i, mu, nu, eta, G[h[i]]);
 
       LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
     }
     else
     {
-      while (1 == 1)
-      {
-        LOG_VEC_FMT(&sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes, "seeds[%i]", i);
+      LOG_VEC_FMT(&sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes, "seeds[%i]", i);
 
-        uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
-        uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
+      uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
+      uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
+      uint8_t sigma_C_tilde_i[MEDS_st_seed_bytes];
 
-        XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
-            (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
-            &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
-            3);
+      XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, sigma_C_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
+          (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
+          &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
+          4);
 
-        pmod_mat_t A_tilde[MEDS_m*MEDS_m];
-        pmod_mat_t B_tilde[MEDS_n*MEDS_n];
+      pmod_mat_t A_tilde[MEDS_m*MEDS_m];
+      pmod_mat_t B_tilde[MEDS_n*MEDS_n];
+      pmod_mat_t C_tilde[MEDS_k*MEDS_k];
 
-        LOG_VEC(sigma_A_tilde_i, MEDS_sec_seed_bytes);
-        rnd_inv_matrix(A_tilde, MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
+      LOG_VEC(sigma_A_tilde_i, MEDS_st_seed_bytes);
+      rnd_inv_matrix(A_tilde, MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
 
-        LOG_VEC(sigma_B_tilde_i, MEDS_sec_seed_bytes);
-        rnd_inv_matrix(B_tilde, MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
+      LOG_VEC(sigma_B_tilde_i, MEDS_st_seed_bytes);
+      rnd_inv_matrix(B_tilde, MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
 
-        LOG_MAT_FMT(A_tilde, MEDS_m, MEDS_m, "A_tilde[%i]", i);
-        LOG_MAT_FMT(B_tilde, MEDS_n, MEDS_n, "B_tilde[%i]", i);
+      LOG_VEC(sigma_C_tilde_i, MEDS_st_seed_bytes);
+      rnd_inv_matrix(C_tilde, MEDS_k, MEDS_k, sigma_C_tilde_i, MEDS_st_seed_bytes);
+
+      LOG_MAT_FMT(A_tilde, MEDS_m, MEDS_m, "A_tilde[%i]", i);
+      LOG_MAT_FMT(B_tilde, MEDS_n, MEDS_n, "B_tilde[%i]", i);
+      LOG_MAT_FMT(C_tilde, MEDS_k, MEDS_k, "C_tilde[%i]", i);
 
 
-        pi(G_hat_i, A_tilde, B_tilde, G[0]);
+      phi(G_hat_i, A_tilde, B_tilde, C_tilde, G[0]);
 
-        LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
-
-
-        if (pmod_mat_syst_ct(G_hat_i, MEDS_k, MEDS_m*MEDS_n) == 0)
-        {
-          LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
-          break;
-        }
-
-        LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
-      }
+      LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
     }
 
 
-    bitstream_t bs;
-    uint8_t bs_buf[CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8)];
-    
-    bs_init(&bs, bs_buf, CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8));
+    uint8_t bs_buf[MEDS_G_BYTES];
 
-    for (int r = 0; r < MEDS_k; r++)
-      for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
-        bs_write(&bs, G_hat_i[r * MEDS_m*MEDS_n + j], GFq_bits);
+    encode_G_full(bs_buf, G_hat_i);
  
-    shake256_absorb(&shake, bs_buf, CEILING((MEDS_k * (MEDS_m*MEDS_n - MEDS_k)) * GFq_bits, 8));
+    shake256_absorb(&shake, bs_buf, MEDS_G_BYTES);
   }
 
   shake256_absorb(&shake, (uint8_t*)(sm + MEDS_SIG_BYTES), smlen - MEDS_SIG_BYTES);

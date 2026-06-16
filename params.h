@@ -38,6 +38,10 @@
 #define MEDS_G_BYTES MEDS_CEIL_DIV((MEDS_k * MEDS_m * MEDS_n) * GFq_bits, 8)
 #define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
 #define MEDS_SK_BYTES (MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_s - 1) * MEDS_MAT_BYTES)
-#define MEDS_SIG_BYTES 9896
+#define MEDS_RESPONSE_BYTES (MEDS_w * 3 * MEDS_MAT_BYTES)
+#define MEDS_PATH_BYTES (MEDS_max_path_len * MEDS_st_seed_bytes)
+#define MEDS_DIGEST_OFFSET (MEDS_RESPONSE_BYTES + MEDS_PATH_BYTES)
+#define MEDS_SALT_OFFSET (MEDS_DIGEST_OFFSET + MEDS_digest_bytes)
+#define MEDS_SIG_BYTES (MEDS_RESPONSE_BYTES + MEDS_PATH_BYTES + MEDS_digest_bytes + MEDS_st_salt_bytes)
 
 #endif
