@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "randombytes.h"
 
@@ -174,6 +175,49 @@ static int run_phi_tests(void)
   return 0;
 }
 
+static int run_keygen_format_tests(void)
+{
+  if (CRYPTO_PUBLICKEYBYTES != MEDS_PK_BYTES)
+  {
+    fprintf(stderr, "CRYPTO_PUBLICKEYBYTES != MEDS_PK_BYTES\n");
+    return -1;
+  }
+
+  if (CRYPTO_SECRETKEYBYTES != MEDS_SK_BYTES)
+  {
+    fprintf(stderr, "CRYPTO_SECRETKEYBYTES != MEDS_SK_BYTES\n");
+    return -1;
+  }
+
+  if (MEDS_PK_BYTES != MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
+  {
+    fprintf(stderr, "MEDS_PK_BYTES formula mismatch\n");
+    return -1;
+  }
+
+  if (MEDS_SK_BYTES != MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_s - 1) * MEDS_MAT_BYTES)
+  {
+    fprintf(stderr, "MEDS_SK_BYTES formula mismatch\n");
+    return -1;
+  }
+
+  uint8_t sk[CRYPTO_SECRETKEYBYTES] = {0};
+  uint8_t pk[CRYPTO_PUBLICKEYBYTES] = {0};
+
+  if (crypto_sign_keypair(pk, sk) != 0)
+  {
+    fprintf(stderr, "crypto_sign_keypair failed\n");
+    return -1;
+  }
+
+  printf("keygen format tests passed\n");
+  printf("pk:  %i bytes\n", CRYPTO_PUBLICKEYBYTES);
+  printf("sk:  %i bytes\n", CRYPTO_SECRETKEYBYTES);
+  printf("sig: %i bytes\n", CRYPTO_BYTES);
+
+  return 0;
+}
+
 double osfreq(void);
 
 long long cpucycles(void)
@@ -194,8 +238,11 @@ int main(int argc, char *argv[])
   long long verify_time = 0xfffffffffffffff;
 
   int rounds = 1;
+  int keygen_only = 0;
 
-  if (argc > 1)
+  if (argc > 1 && strcmp(argv[1], "--keygen-only") == 0)
+    keygen_only = 1;
+  else if (argc > 1)
     rounds = atoi(argv[1]);
 
   unsigned char entropy_input[48] = {0};
@@ -204,6 +251,9 @@ int main(int argc, char *argv[])
 
   if (run_phi_tests() != 0)
     return 1;
+
+  if (keygen_only)
+    return run_keygen_format_tests() == 0 ? 0 : 1;
 
   char msg[4] = "Test";
 

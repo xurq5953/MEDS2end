@@ -20,6 +20,59 @@
 
 #include "matrixmod.h"
 
+static void load_public_key_matrices(pmod_mat_t *G[MEDS_s], const unsigned char *pk)
+{
+  rnd_sys_mat(G[0], MEDS_k, MEDS_m*MEDS_n, pk, MEDS_pub_seed_bytes);
+
+  bitstream_t bs;
+
+  bs_init(&bs, (uint8_t*)pk + MEDS_pub_seed_bytes, MEDS_PK_BYTES - MEDS_pub_seed_bytes);
+
+  for (int si = 1; si < MEDS_s; si++)
+  {
+    for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
+      G[si][j] = bs_read(&bs, GFq_bits);
+
+    bs_finalize(&bs);
+  }
+}
+
+static void load_secret_key_matrices(
+    pmod_mat_t *A_inv[MEDS_s],
+    pmod_mat_t *B_inv[MEDS_s],
+    pmod_mat_t *C_inv[MEDS_s],
+    const unsigned char *sk_body
+  )
+{
+  bitstream_t bs;
+
+  bs_init(&bs, (uint8_t*)sk_body, MEDS_SK_BYTES - MEDS_sec_seed_bytes - MEDS_pub_seed_bytes);
+
+  for (int si = 1; si < MEDS_s; si++)
+  {
+    for (int j = 0; j < MEDS_m*MEDS_m; j++)
+      A_inv[si][j] = bs_read(&bs, GFq_bits);
+
+    bs_finalize(&bs);
+  }
+
+  for (int si = 1; si < MEDS_s; si++)
+  {
+    for (int j = 0; j < MEDS_n*MEDS_n; j++)
+      B_inv[si][j] = bs_read(&bs, GFq_bits);
+
+    bs_finalize(&bs);
+  }
+
+  for (int si = 1; si < MEDS_s; si++)
+  {
+    for (int j = 0; j < MEDS_k*MEDS_k; j++)
+      C_inv[si][j] = bs_read(&bs, GFq_bits);
+
+    bs_finalize(&bs);
+  }
+}
+
 int crypto_sign_keypair(
     unsigned char *pk,
     unsigned char *sk
@@ -54,33 +107,39 @@ int crypto_sign_keypair(
 
   pmod_mat_t A_inv_data[MEDS_s * MEDS_m * MEDS_m];
   pmod_mat_t B_inv_data[MEDS_s * MEDS_n * MEDS_n];
+  pmod_mat_t C_inv_data[MEDS_s * MEDS_k * MEDS_k];
 
   pmod_mat_t *A_inv[MEDS_s];
   pmod_mat_t *B_inv[MEDS_s];
+  pmod_mat_t *C_inv[MEDS_s];
 
   for (int i = 0; i < MEDS_s; i++)
   {
     A_inv[i] = &A_inv_data[i * MEDS_m * MEDS_m];
     B_inv[i] = &B_inv_data[i * MEDS_n * MEDS_n];
+    C_inv[i] = &C_inv_data[i * MEDS_k * MEDS_k];
   }
 
   for (int i = 1; i < MEDS_s; i++)
   {
     pmod_mat_t A[MEDS_m * MEDS_m] = {0};
     pmod_mat_t B[MEDS_n * MEDS_n] = {0};
+    pmod_mat_t C[MEDS_k * MEDS_k] = {0};
 
     while (1 == 1) // redo generation for this index until success
     {
       uint8_t sigma_Ai[MEDS_sec_seed_bytes];
       uint8_t sigma_Bi[MEDS_sec_seed_bytes];
+      uint8_t sigma_Ci[MEDS_sec_seed_bytes];
 
-      XOF((uint8_t*[]){sigma_Ai, sigma_Bi, sigma},
-          (size_t[]){MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes},
+      XOF((uint8_t*[]){sigma_Ai, sigma_Bi, sigma_Ci, sigma},
+          (size_t[]){MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes},
           sigma, MEDS_sec_seed_bytes,
-          3);
+          4);
 
       rnd_inv_matrix(A, MEDS_m, MEDS_m, sigma_Ai, MEDS_sec_seed_bytes);
       rnd_inv_matrix(B, MEDS_n, MEDS_n, sigma_Bi, MEDS_sec_seed_bytes);
+      rnd_inv_matrix(C, MEDS_k, MEDS_k, sigma_Ci, MEDS_sec_seed_bytes);
 
       if (pmod_mat_inv(A_inv[i], A, MEDS_m, MEDS_m) < 0)
       {
@@ -94,20 +153,21 @@ int crypto_sign_keypair(
         continue;
       }
 
+      if (pmod_mat_inv(C_inv[i], C, MEDS_k, MEDS_k) < 0)
+      {
+        LOG("no inv C_inv");
+        continue;
+      }
+
       LOG_MAT_FMT(A, MEDS_m, MEDS_m, "A[%i]", i);
       LOG_MAT_FMT(A_inv[i], MEDS_m, MEDS_m, "A_inv[%i]", i);
       LOG_MAT_FMT(B, MEDS_n, MEDS_n, "B[%i]", i);
       LOG_MAT_FMT(B_inv[i], MEDS_n, MEDS_n, "B_inv[%i]", i);
+      LOG_MAT_FMT(C, MEDS_k, MEDS_k, "C[%i]", i);
+      LOG_MAT_FMT(C_inv[i], MEDS_k, MEDS_k, "C_inv[%i]", i);
 
 
-      pi(G[i], A, B, G[0]);
-
-
-      if (pmod_mat_syst_ct(G[i], MEDS_k, MEDS_m*MEDS_n) != 0)
-      {
-        LOG("redo G[%i]", i);
-        continue; // Not systematic; try again for index i.
-      }
+      phi(G[i], A, B, C, G[0]);
 
       LOG_MAT_FMT(G[i], MEDS_k, MEDS_m*MEDS_n, "G[%i]", i);
 
@@ -131,9 +191,8 @@ int crypto_sign_keypair(
 
     for (int si = 1; si < MEDS_s; si++)
     {
-      for (int r = 0; r < MEDS_k; r++)
-        for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
-          bs_write(&bs, G[si][r*MEDS_m*MEDS_n + j], GFq_bits);
+      for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
+        bs_write(&bs, G[si][j], GFq_bits);
 
       bs_finalize(&bs);
     }
@@ -176,6 +235,21 @@ int crypto_sign_keypair(
       bs_finalize(&bs);
     }
 
+    for (int si = 1; si < MEDS_s; si++)
+    {
+      for (int j = 0; j < MEDS_k*MEDS_k; j++)
+        bs_write(&bs, C_inv[si][j], GFq_bits);
+
+      bs_finalize(&bs);
+    }
+
+    if (MEDS_SK_BYTES != MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0))
+    {
+      fprintf(stderr, "ERROR: MEDS_SK_BYTES and actual sk size do not match! %i vs %i\n", MEDS_SK_BYTES, MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos+(bs.bit_pos > 0 ? 1 : 0));
+      fprintf(stderr, "%i %i\n", MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos, MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0));
+      return -1;
+    }
+
     LOG_HEX(sk, MEDS_SK_BYTES);
   }
 
@@ -206,40 +280,20 @@ int crypto_sign(
 
   pmod_mat_t A_inv_data[MEDS_s * MEDS_m * MEDS_m];
   pmod_mat_t B_inv_data[MEDS_s * MEDS_n * MEDS_n];
+  pmod_mat_t C_inv_data[MEDS_s * MEDS_k * MEDS_k];
 
   pmod_mat_t *A_inv[MEDS_s];
   pmod_mat_t *B_inv[MEDS_s];
+  pmod_mat_t *C_inv[MEDS_s];
 
   for (int i = 0; i < MEDS_s; i++)
   {
     A_inv[i] = &A_inv_data[i * MEDS_m * MEDS_m];
     B_inv[i] = &B_inv_data[i * MEDS_n * MEDS_n];
+    C_inv[i] = &C_inv_data[i * MEDS_k * MEDS_k];
   }
  
-  // Load secret key matrices.
-  {
-    bitstream_t bs;
-
-    bs_init(&bs, (uint8_t*)sk, MEDS_SK_BYTES - MEDS_sec_seed_bytes - MEDS_pub_seed_bytes);
-
-    for (int si = 1; si < MEDS_s; si++)
-    {
-      for (int j = 0; j < MEDS_m*MEDS_m; j++)
-        A_inv[si][j] = bs_read(&bs, GFq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    for (int si = 1; si < MEDS_s; si++)
-    {
-      for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        B_inv[si][j] = bs_read(&bs, GFq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    bs_finalize(&bs);
-  }
+  load_secret_key_matrices(A_inv, B_inv, C_inv, sk);
 
 
   for (int i = 1; i < MEDS_s; i++)
@@ -247,6 +301,9 @@ int crypto_sign(
 
   for (int i = 1; i < MEDS_s; i++)
     LOG_MAT(B_inv[i], MEDS_n, MEDS_n);
+
+  for (int i = 1; i < MEDS_s; i++)
+    LOG_MAT(C_inv[i], MEDS_k, MEDS_k);
 
   LOG_MAT(G_0, MEDS_k, MEDS_m*MEDS_m);
 
@@ -414,29 +471,7 @@ int crypto_sign_open(
     G[i] = &G_data[i * MEDS_k * MEDS_m * MEDS_n];
 
 
-  rnd_sys_mat(G[0], MEDS_k, MEDS_m*MEDS_n, pk, MEDS_pub_seed_bytes);
-
-  {
-    bitstream_t bs;
-
-    bs_init(&bs, (uint8_t*)pk + MEDS_pub_seed_bytes, MEDS_PK_BYTES - MEDS_pub_seed_bytes);
-
-    for (int i = 1; i < MEDS_s; i++)
-    {
-      for (int r = 0; r < MEDS_k; r++)
-        for (int c = 0; c < MEDS_k; c++)
-          if (r == c)
-            pmod_mat_set_entry(G[i], MEDS_k, MEDS_m * MEDS_n, r, c, 1);
-          else
-            pmod_mat_set_entry(G[i], MEDS_k, MEDS_m * MEDS_n, r, c, 0);
-
-      for (int r = 0; r < MEDS_k; r++)
-        for (int j = MEDS_k; j < MEDS_m*MEDS_n; j++)
-          G[i][r*MEDS_m*MEDS_n + j] = bs_read(&bs, GFq_bits);
-
-      bs_finalize(&bs);
-    }
-  }
+  load_public_key_matrices(G, pk);
 
   for (int i = 0; i < MEDS_s; i++)
     LOG_MAT_FMT(G[i], MEDS_k, MEDS_m*MEDS_n, "G[%i]", i);
