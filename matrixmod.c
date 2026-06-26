@@ -1,15 +1,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "params.h"
-#include"matrixmod.h"
+#include "matrixmod.h"
 
-void pmod_mat_print(Fq *M, int M_r, int M_c)
+void pmod_mat_print(const pmod_mat_t *M, int M_r, int M_c)
 {
   pmod_mat_fprint(stdout, M, M_r, M_c);
 }
 
-void pmod_mat_fprint(FILE *stream, Fq *M, int M_r, int M_c)
+void pmod_mat_fprint(FILE *stream, const pmod_mat_t *M, int M_r, int M_c)
 {
   for (int r = 0; r < M_r; r++)
   {
@@ -21,7 +20,79 @@ void pmod_mat_fprint(FILE *stream, Fq *M, int M_r, int M_c)
   }
 }
 
-void pmod_mat_mul(Fq *C, int C_r, int C_c, Fq *A, int A_r, int A_c, Fq *B, int B_r, int B_c)
+void pmod_mat_zero(pmod_mat_t *A, int n)
+{
+  memset(A, 0, (size_t)n * n * sizeof(*A));
+}
+
+void pmod_mat_copy(pmod_mat_t *dst, const pmod_mat_t *src, int n)
+{
+  memcpy(dst, src, (size_t)n * n * sizeof(*dst));
+}
+
+void pmod_mat_identity(pmod_mat_t *A, int n)
+{
+  pmod_mat_zero(A, n);
+
+  for (int i = 0; i < n; i++)
+    A[i * n + i] = 1;
+}
+
+void pmod_mat_transpose(
+    pmod_mat_t *AT,
+    const pmod_mat_t *A,
+    int n)
+{
+  if (AT == A)
+  {
+    for (int r = 0; r < n; r++)
+      for (int c = r + 1; c < n; c++)
+      {
+        GFq_t tmp = AT[r * n + c];
+        AT[r * n + c] = AT[c * n + r];
+        AT[c * n + r] = tmp;
+      }
+
+    return;
+  }
+
+  for (int r = 0; r < n; r++)
+    for (int c = 0; c < n; c++)
+      AT[c * n + r] = A[r * n + c];
+}
+
+void pmod_mat_mul(
+    pmod_mat_t *C,
+    const pmod_mat_t *A,
+    const pmod_mat_t *B,
+    int n)
+{
+  pmod_mat_t tmp[n * n];
+
+  for (int r = 0; r < n; r++)
+    for (int c = 0; c < n; c++)
+    {
+      uint64_t acc = 0;
+
+      for (int k = 0; k < n; k++)
+        acc += (uint64_t)A[r * n + k] * B[k * n + c];
+
+      tmp[r * n + c] = (GFq_t)(acc % MEDS_p);
+    }
+
+  memcpy(C, tmp, sizeof(tmp));
+}
+
+void pmod_mat_mul_rect(
+    Fq *C,
+    int C_r,
+    int C_c,
+    const Fq *A,
+    int A_r,
+    int A_c,
+    const Fq *B,
+    int B_r,
+    int B_c)
 {
   GFq_t tmp[C_r*C_c];
 
@@ -30,7 +101,7 @@ void pmod_mat_mul(Fq *C, int C_r, int C_c, Fq *A, int A_r, int A_c, Fq *B, int B
     {
       uint64_t val = 0;
 
-      for (int i = 0; i < A_r; i++)
+      for (int i = 0; i < A_c; i++)
         val = (val + (uint64_t)pmod_mat_entry(A, A_r, A_c, r, i) * (uint64_t)pmod_mat_entry(B, B_r, B_c, i, c));
 
       tmp[r*C_c + c] = val % MEDS_p;
@@ -39,6 +110,105 @@ void pmod_mat_mul(Fq *C, int C_r, int C_c, Fq *A, int A_r, int A_c, Fq *B, int B
   for (int c = 0; c < C_c; c++)
     for (int r = 0; r < C_r; r++)
       pmod_mat_set_entry(C, C_r, C_c, r, c, tmp[r*C_c + c]);
+}
+
+void pmod_mat_vec_mul(
+    GFq_t *out,
+    const pmod_mat_t *A,
+    const GFq_t *v,
+    int n)
+{
+  GFq_t tmp[n];
+
+  for (int r = 0; r < n; r++)
+  {
+    uint64_t acc = 0;
+
+    for (int c = 0; c < n; c++)
+      acc += (uint64_t)A[r * n + c] * v[c];
+
+    tmp[r] = (GFq_t)(acc % MEDS_p);
+  }
+
+  memcpy(out, tmp, sizeof(tmp));
+}
+
+void pmod_mat_transpose_vec_mul(
+    GFq_t *out,
+    const pmod_mat_t *A,
+    const GFq_t *v,
+    int n)
+{
+  GFq_t tmp[n];
+
+  for (int c = 0; c < n; c++)
+  {
+    uint64_t acc = 0;
+
+    for (int r = 0; r < n; r++)
+      acc += (uint64_t)A[r * n + c] * v[r];
+
+    tmp[c] = (GFq_t)(acc % MEDS_p);
+  }
+
+  memcpy(out, tmp, sizeof(tmp));
+}
+
+void pmod_mat_set_col(
+    pmod_mat_t *A,
+    int col,
+    const GFq_t *v,
+    int n)
+{
+  for (int r = 0; r < n; r++)
+    A[r * n + col] = v[r];
+}
+
+void pmod_mat_get_col(
+    GFq_t *v,
+    const pmod_mat_t *A,
+    int col,
+    int n)
+{
+  for (int r = 0; r < n; r++)
+    v[r] = A[r * n + col];
+}
+
+void pmod_mat_linear_combination(
+    pmod_mat_t *out,
+    const pmod_mat_t *matrices,
+    const GFq_t *coeffs,
+    int count,
+    int n)
+{
+  for (int pos = 0; pos < n * n; pos++)
+  {
+    uint64_t acc = 0;
+
+    for (int i = 0; i < count; i++)
+      acc += (uint64_t)coeffs[i] * matrices[i * n * n + pos];
+
+    out[pos] = (GFq_t)(acc % MEDS_p);
+  }
+}
+
+void pmod_mat_diag_scale(
+    pmod_mat_t *out,
+    const GFq_t *left_diag,
+    const pmod_mat_t *A,
+    const GFq_t *right_diag,
+    int n)
+{
+  pmod_mat_t tmp[n * n];
+
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < n; j++)
+    {
+      GFq_t x = GF_mul(left_diag[i], A[i * n + j]);
+      tmp[i * n + j] = GF_mul(x, right_diag[j]);
+    }
+
+  memcpy(out, tmp, sizeof(tmp));
 }
 
 int pmod_mat_syst_ct(Fq *M, int M_r, int M_c)
@@ -142,70 +312,3 @@ int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
 
   return 0;
 }
-
-GFq_t GF_inv(GFq_t val)
-{
-  if (MEDS_p == 8191)
-  {
-    // Use optimal addition chain...
-    uint64_t tmp_0  = val;
-    uint64_t tmp_1  = (tmp_0 * tmp_0) % MEDS_p;
-    uint64_t tmp_2  = (tmp_1 * tmp_0) % MEDS_p;
-    uint64_t tmp_3  = (tmp_2 * tmp_1) % MEDS_p;
-    uint64_t tmp_4  = (tmp_3 * tmp_3) % MEDS_p;
-    uint64_t tmp_5  = (tmp_4 * tmp_3) % MEDS_p;
-    uint64_t tmp_6  = (tmp_5 * tmp_5) % MEDS_p;
-    uint64_t tmp_7  = (tmp_6 * tmp_6) % MEDS_p;
-    uint64_t tmp_8  = (tmp_7 * tmp_7) % MEDS_p;
-    uint64_t tmp_9  = (tmp_8 * tmp_8) % MEDS_p;
-    uint64_t tmp_10 = (tmp_9 * tmp_5) % MEDS_p;
-    uint64_t tmp_11 = (tmp_10 * tmp_10) % MEDS_p;
-    uint64_t tmp_12 = (tmp_11 * tmp_11) % MEDS_p;
-    uint64_t tmp_13 = (tmp_12 * tmp_2) % MEDS_p;
-    uint64_t tmp_14 = (tmp_13 * tmp_13) % MEDS_p;
-    uint64_t tmp_15 = (tmp_14 * tmp_14) % MEDS_p;
-    uint64_t tmp_16 = (tmp_15 * tmp_15) % MEDS_p;
-    uint64_t tmp_17 = (tmp_16 * tmp_3) % MEDS_p;
-
-    return tmp_17;
-  }
-  else
-  {
-    uint64_t exponent = MEDS_p - 2;
-    uint64_t t = 1;
-
-    while (exponent > 0)
-    {
-      if ((exponent & 1) != 0)
-        t = (t*(uint64_t)val) % MEDS_p;
-
-      val = ((uint64_t)val*(uint64_t)val) % MEDS_p;
-
-      exponent >>= 1;
-    }
-
-    return t;
-  }
-}
-
-int pmod_mat_inv(Fq *B, Fq *A, int A_r, int A_c)
-{
-  Fq M[A_r * A_c*2];
-
-  for (int r = 0; r < A_r; r++)
-  {
-    memcpy(&M[r * A_c*2], &A[r * A_c], A_c * sizeof(GFq_t));
-
-    for (int c = 0; c < A_c; c++)
-      pmod_mat_set_entry(M, A_r, A_c*2, r, A_c + c, r==c ? 1 : 0);
-  }
-
-  int ret = pmod_mat_syst_ct(M, A_r, A_c*2);
-
-  if ((ret == 0) && B)
-    for (int r = 0; r < A_r; r++)
-      memcpy(&B[r * A_c], &M[r * A_c*2 + A_c], A_c * sizeof(GFq_t));
-
-  return ret;
-}
-

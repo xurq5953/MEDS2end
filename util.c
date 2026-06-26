@@ -8,6 +8,7 @@
 #include "util.h"
 #include "meds.h"
 #include "matrixmod.h"
+#include "matrixelim.h"
 
 
 void XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, int num)
@@ -59,75 +60,20 @@ void rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
 
 void rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
 {
+  if (M_r != M_c)
+    return;
+
   keccak_state shake;
   shake256_absorb_once(&shake, seed, seed_len);
 
-  while (0==0)
+  while (1)
   {
-redo:
     for (int r = 0; r < M_r; r++)
       for (int c = 0; c < M_c; c++)
         pmod_mat_set_entry(M, M_r, M_c, r, c, rnd_GF(&shake));
 
-    Fq tmp[M_r * M_c];
-
-    memcpy(tmp, M, M_r * M_c * sizeof(GFq_t));
-
-    {
-      for (int r = 0; r < M_r; r++)
-      {
-        // swap
-        for (int r2 = r+1; r2 < M_r; r2++)
-        {
-          uint64_t Mrr = pmod_mat_entry(tmp, M_r, M_c, r, r);
-
-          for (int c = r; c < M_c; c++)
-          {
-            uint64_t val = pmod_mat_entry(tmp, M_r, M_c, r2, c);
-
-            uint64_t Mrc = pmod_mat_entry(tmp, M_r, M_c, r, c);
-
-            pmod_mat_set_entry(tmp, M_r, M_c, r, c, (Mrc + val * (Mrr == 0)) % MEDS_p);
-          }
-        }
-
-        uint64_t val = pmod_mat_entry(tmp, M_r, M_c, r, r);
-
-        if (val == 0)
-          goto redo;
-
-        val = GF_inv(val);
-
-        // normalize
-        for (int c = r; c < M_c; c++)
-        {
-          uint64_t tmp0 = ((uint64_t)pmod_mat_entry(tmp, M_r, M_c, r, c) * val) % MEDS_p;
-          pmod_mat_set_entry(tmp, M_r, M_c, r, c, tmp0);
-        }
-
-        // eliminate
-        for (int r2 = r+1; r2 < M_r; r2++)
-        {
-          uint64_t factor = pmod_mat_entry(tmp, M_r, M_c, r2, r);
-
-          for (int c = r; c < M_c; c++)
-          {
-            uint64_t tmp0 = pmod_mat_entry(tmp, M_r, M_c, r, c);
-            uint64_t tmp1 = pmod_mat_entry(tmp, M_r, M_c, r2, c);
-
-            int64_t val = (tmp0 * factor) % MEDS_p;
-
-            val = tmp1 - val;
-
-            val += MEDS_p * (val < 0);
-
-            pmod_mat_set_entry(tmp, M_r, M_c,  r2, c, val);
-          }
-        }
-      }
-
+    if (pmod_mat_is_invertible_vartime(M, M_r))
       return;
-    }
   }
 }
 
@@ -412,8 +358,8 @@ void pi(Fq *Gout, Fq *A, Fq *B, Fq *G)
 
   for (int i = 0; i < MEDS_k; i++)
   {
-    pmod_mat_mul(Gsub[i], MEDS_m, MEDS_n, A, MEDS_m, MEDS_m, G0sub[i], MEDS_m, MEDS_n);
-    pmod_mat_mul(Gsub[i], MEDS_m, MEDS_n, Gsub[i], MEDS_m, MEDS_n, B, MEDS_n, MEDS_n);
+    pmod_mat_mul(Gsub[i], A, G0sub[i], MEDS_n);
+    pmod_mat_mul(Gsub[i], Gsub[i], B, MEDS_n);
   }
 }
 
@@ -427,7 +373,7 @@ void phi(Fq *Gout, Fq *A, Fq *B, Fq *C, Fq *G)
 
   pi(tmp, A, B, G);
 
-  pmod_mat_mul(Gout,
+  pmod_mat_mul_rect(Gout,
       MEDS_k, MEDS_m * MEDS_n,
       C, MEDS_k, MEDS_k,
       tmp, MEDS_k, MEDS_m * MEDS_n);

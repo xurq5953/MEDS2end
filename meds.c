@@ -453,9 +453,9 @@ int crypto_sign(
       Fq nu[MEDS_n*MEDS_n];
       Fq eta[MEDS_k*MEDS_k];
 
-      pmod_mat_mul(mu, MEDS_m, MEDS_m, A_tilde[i], MEDS_m, MEDS_m, A_inv[h[i]], MEDS_m, MEDS_m);
-      pmod_mat_mul(nu, MEDS_n, MEDS_n, B_inv[h[i]], MEDS_n, MEDS_n, B_tilde[i], MEDS_n, MEDS_n);
-      pmod_mat_mul(eta, MEDS_k, MEDS_k, C_tilde[i], MEDS_k, MEDS_k, C_inv[h[i]], MEDS_k, MEDS_k);
+      pmod_mat_mul(mu, A_tilde[i], A_inv[h[i]], MEDS_m);
+      pmod_mat_mul(nu, B_inv[h[i]], B_tilde[i], MEDS_n);
+      pmod_mat_mul(eta, C_tilde[i], C_inv[h[i]], MEDS_k);
 
       LOG_MAT(mu, MEDS_m, MEDS_m);
       LOG_MAT(nu, MEDS_n, MEDS_n);

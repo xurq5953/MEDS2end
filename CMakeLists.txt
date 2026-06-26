@@ -28,12 +28,18 @@ set(COMMON_SOURCES
   util.c
   osfreq.c
   fips202.c
+  field.c
   matrixmod.c
+  matrixelim.c
   bitstream.c
   randombytes.c
 )
 
-set(EXES bench PQCgenKAT_sign test_meds2end_seedless)
+set(EXES bench PQCgenKAT_sign)
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/test_meds2end_seedless.c")
+  list(APPEND EXES test_meds2end_seedless)
+endif()
 
 file(GLOB KAT_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/PQCsignKAT_*")
 
