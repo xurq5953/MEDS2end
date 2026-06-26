@@ -223,52 +223,58 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
 {
   for (int r = 0; r < M_r; r++)
   {
-    // swap
-    for (int r2 = r+1; r2 < M_r; r2++)
+    // Add lower rows to the pivot row until the pivot becomes nonzero.
+    for (int r2 = r + 1; r2 < M_r; r2++)
     {
-      uint64_t Mrr = pmod_mat_entry(M, M_r, M_c, r, r);
+      uint64_t pivot_entry = pmod_mat_entry(M, M_r, M_c, r, r);
 
       for (int c = r; c < M_c; c++)
       {
-        uint64_t val = pmod_mat_entry(M, M_r, M_c, r2, c);
+        uint64_t candidate_entry = pmod_mat_entry(M, M_r, M_c, r2, c);
+        uint64_t current_entry = pmod_mat_entry(M, M_r, M_c, r, c);
+        uint64_t updated_entry =
+            (current_entry + candidate_entry * (pivot_entry == 0)) % MEDS_p;
 
-        uint64_t Mrc = pmod_mat_entry(M, M_r, M_c, r, c);
-
-        pmod_mat_set_entry(M, M_r, M_c, r, c, (Mrc + val * (Mrr == 0)) % MEDS_p);
+        pmod_mat_set_entry(M, M_r, M_c, r, c, updated_entry);
       }
     }
 
-    uint64_t val = pmod_mat_entry(M, M_r, M_c, r, r);
+    uint64_t pivot = pmod_mat_entry(M, M_r, M_c, r, r);
 
-    if (val == 0)
+    if (pivot == 0)
       return -1;
 
-    val = GF_inv(val);
+    uint64_t pivot_inv = GF_inv((GFq_t)pivot);
 
-    // normalize
+    // Normalize the pivot row.
     for (int c = r; c < M_c; c++)
     {
-      uint64_t tmp = ((uint64_t)pmod_mat_entry(M, M_r, M_c, r, c) * val) % MEDS_p;
-      pmod_mat_set_entry(M, M_r, M_c, r, c, tmp);
+      uint64_t row_entry = pmod_mat_entry(M, M_r, M_c, r, c);
+      uint64_t normalized_entry = (row_entry * pivot_inv) % MEDS_p;
+
+      pmod_mat_set_entry(M, M_r, M_c, r, c, normalized_entry);
     }
 
-    // eliminate
-    for (int r2 = r+1; r2 < M_r; r2++)
+    // Eliminate entries below the pivot.
+    for (int r2 = r + 1; r2 < M_r; r2++)
     {
       uint64_t factor = pmod_mat_entry(M, M_r, M_c, r2, r);
 
       for (int c = r; c < M_c; c++)
       {
-        uint64_t tmp0 = pmod_mat_entry(M, M_r, M_c, r, c);
-        uint64_t tmp1 = pmod_mat_entry(M, M_r, M_c, r2, c);
+        uint64_t pivot_row_entry =
+            pmod_mat_entry(M, M_r, M_c, r, c);
+        uint64_t target_row_entry =
+            pmod_mat_entry(M, M_r, M_c, r2, c);
 
-        int64_t val = (tmp0 * factor) % MEDS_p;
+        int64_t reduced_entry =
+            (int64_t)target_row_entry -
+            (int64_t)((pivot_row_entry * factor) % MEDS_p);
 
-        val = tmp1 - val;
+        reduced_entry += MEDS_p * (reduced_entry < 0);
 
-        val += MEDS_p * (val < 0);
-
-        pmod_mat_set_entry(M, M_r, M_c,  r2, c, val);
+        pmod_mat_set_entry(
+            M, M_r, M_c, r2, c, (GFq_t)reduced_entry);
       }
     }
   }
@@ -278,37 +284,44 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
 
 int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
 {
-  // back substitution
   for (int r = M_r - 1; r >= 0; r--)
+  {
     for (int r2 = 0; r2 < r; r2++)
     {
       uint64_t factor = pmod_mat_entry(M, M_r, M_c, r2, r);
 
-      uint64_t tmp0 = pmod_mat_entry(M, M_r, M_c, r, r);
-      uint64_t tmp1 = pmod_mat_entry(M, M_r, M_c, r2, r);
+      uint64_t pivot_entry =
+          pmod_mat_entry(M, M_r, M_c, r, r);
+      uint64_t target_pivot_entry =
+          pmod_mat_entry(M, M_r, M_c, r2, r);
 
-      int64_t val = (tmp0 * factor) % MEDS_p;
+      int64_t reduced_pivot_entry =
+          (int64_t)target_pivot_entry -
+          (int64_t)((pivot_entry * factor) % MEDS_p);
 
-      val = tmp1 - val;
+      reduced_pivot_entry += MEDS_p * (reduced_pivot_entry < 0);
 
-      val += MEDS_p * (val < 0);
-
-      pmod_mat_set_entry(M, M_r, M_c,  r2, r, val);
+      pmod_mat_set_entry(
+          M, M_r, M_c, r2, r, (GFq_t)reduced_pivot_entry);
 
       for (int c = M_r; c < M_c; c++)
       {
-        uint64_t tmp0 = pmod_mat_entry(M, M_r, M_c, r, c);
-        uint64_t tmp1 = pmod_mat_entry(M, M_r, M_c, r2, c);
+        uint64_t pivot_row_entry =
+            pmod_mat_entry(M, M_r, M_c, r, c);
+        uint64_t target_row_entry =
+            pmod_mat_entry(M, M_r, M_c, r2, c);
 
-        int val = (tmp0 * factor) % MEDS_p;
+        int64_t reduced_entry =
+            (int64_t)target_row_entry -
+            (int64_t)((pivot_row_entry * factor) % MEDS_p);
 
-        val = tmp1 - val;
+        reduced_entry += MEDS_p * (reduced_entry < 0);
 
-        val += MEDS_p * (val < 0);
-
-        pmod_mat_set_entry(M, M_r, M_c,  r2, c, val);
+        pmod_mat_set_entry(
+            M, M_r, M_c, r2, c, (GFq_t)reduced_entry);
       }
     }
+  }
 
   return 0;
 }
