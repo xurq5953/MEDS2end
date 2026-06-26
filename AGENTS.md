@@ -167,9 +167,9 @@ Use the existing field helpers instead of manually duplicating modular arithmeti
 Preferred usage:
 
 ```c
-GFq_t c = GF_add(a, b);
-GFq_t d = GF_sub(a, b);
-GFq_t e = GF_mul(a, b);
+Fq c = GF_add(a, b);
+Fq d = GF_sub(a, b);
+Fq e = GF_mul(a, b);
 ```
 
 Avoid open-coded expressions such as:
@@ -231,22 +231,17 @@ unless the implementation is explicitly changed and tested for in-place operatio
 
 ## Element type
 
-The scalar field type is:
+The only finite-field element type in the project is:
 
 ```c
-GFq_t
-```
-
-The current matrix aliases are:
-
-```c
-pmod_mat_t
 Fq
 ```
 
-Do not introduce another scalar or matrix element type without an explicit migration plan.
+Matrices, vectors, kernels, bases, coefficients, and trilinear-form slices are represented as contiguous arrays of `Fq`.
 
-Do not globally rename `GFq_t`, `Fq`, or `pmod_mat_t` as part of an unrelated task.
+Do not introduce another scalar, vector, matrix, or finite-field element alias without an explicit migration plan.
+
+Do not reintroduce finite-field element aliases.
 
 ## Storage order
 
@@ -271,7 +266,7 @@ Do not transpose the storage convention.
 Vectors are mathematical column vectors stored as contiguous arrays:
 
 ```c
-GFq_t v[n];
+Fq v[n];
 ```
 
 A matrix-vector product computes:

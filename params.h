@@ -1,6 +1,8 @@
 #ifndef PARAMS_H
 #define PARAMS_H
 
+#include <stdint.h>
+
 #define MEDS_name "MEDS9923"
 
 #define MEDS_digest_bytes 32
@@ -10,7 +12,7 @@
 #define MEDS_salt_bytes 32
 
 #define MEDS_p 4093
-#define GFq_t uint16_t
+typedef uint16_t Fq;
 #define GFq_bits 12
 #define GFq_bytes 2
 

@@ -21,18 +21,18 @@ void XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, in
     shake256_squeeze(buf[i], length[i], &shake);
 }
 
-GFq_t rnd_GF(keccak_state *shake)
+Fq rnd_GF(keccak_state *shake)
 {
-  GFq_t val = MEDS_p;
+  Fq val = MEDS_p;
 
   while (val >= MEDS_p)
   {
-    uint8_t data[sizeof(GFq_t)];
+    uint8_t data[sizeof(Fq)];
     
-    shake256_squeeze(data, sizeof(GFq_t), shake);
+    shake256_squeeze(data, sizeof(Fq), shake);
 
     val = 0;
-    for (int i = 0; i < sizeof(GFq_t); i++)
+    for (int i = 0; i < sizeof(Fq); i++)
       val |= data[i] << (i*8);
 
     val = val & ((1 << GFq_bits) - 1);
@@ -149,7 +149,7 @@ int parse_hash(const uint8_t *digest, int digest_len, uint8_t *h, int len_h)
   return 0;
 }
 
-int solve(Fq *A, Fq *B_inv, Fq *G0prime, GFq_t Amm)
+int solve(Fq *A, Fq *B_inv, Fq *G0prime, Fq Amm)
 {
   Fq P0prime0[MEDS_m*MEDS_n];
   Fq P0prime1[MEDS_m*MEDS_n];
@@ -269,7 +269,7 @@ int solve(Fq *A, Fq *B_inv, Fq *G0prime, GFq_t Amm)
   //LOG_MAT_FMT(M, MEDS_n, MEDS_m + MEDS_m + 2, "M done");
 
 
-  GFq_t sol[MEDS_n*MEDS_n + MEDS_m*MEDS_m] = {0};
+  Fq sol[MEDS_n*MEDS_n + MEDS_m*MEDS_m] = {0};
 
   sol[MEDS_n*MEDS_n + MEDS_m * MEDS_m - 1] = Amm;
 

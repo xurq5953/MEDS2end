@@ -10,25 +10,22 @@
 
 #define pmod_mat_set_entry(M, M_r, M_c, r, c, v) (M[(M_c)*(r)+(c)] = v)
 
-#define pmod_mat_t GFq_t
-#define Fq GFq_t
+void pmod_mat_print(const Fq *M, int M_r, int M_c);
+void pmod_mat_fprint(FILE *stream, const Fq *M, int M_r, int M_c);
 
-void pmod_mat_print(const pmod_mat_t *M, int M_r, int M_c);
-void pmod_mat_fprint(FILE *stream, const pmod_mat_t *M, int M_r, int M_c);
-
-void pmod_mat_zero(pmod_mat_t *A, int n);
-void pmod_mat_copy(pmod_mat_t *dst, const pmod_mat_t *src, int n);
-void pmod_mat_identity(pmod_mat_t *A, int n);
+void pmod_mat_zero(Fq *A, int n);
+void pmod_mat_copy(Fq *dst, const Fq *src, int n);
+void pmod_mat_identity(Fq *A, int n);
 
 void pmod_mat_transpose(
-    pmod_mat_t *AT,
-    const pmod_mat_t *A,
+    Fq *AT,
+    const Fq *A,
     int n);
 
 void pmod_mat_mul(
-    pmod_mat_t *C,
-    const pmod_mat_t *A,
-    const pmod_mat_t *B,
+    Fq *C,
+    const Fq *A,
+    const Fq *B,
     int n);
 
 void pmod_mat_mul_rect(
@@ -43,41 +40,41 @@ void pmod_mat_mul_rect(
     int B_c);
 
 void pmod_mat_vec_mul(
-    GFq_t *out,
-    const pmod_mat_t *A,
-    const GFq_t *v,
+    Fq *out,
+    const Fq *A,
+    const Fq *v,
     int n);
 
 void pmod_mat_transpose_vec_mul(
-    GFq_t *out,
-    const pmod_mat_t *A,
-    const GFq_t *v,
+    Fq *out,
+    const Fq *A,
+    const Fq *v,
     int n);
 
 void pmod_mat_set_col(
-    pmod_mat_t *A,
+    Fq *A,
     int col,
-    const GFq_t *v,
+    const Fq *v,
     int n);
 
 void pmod_mat_get_col(
-    GFq_t *v,
-    const pmod_mat_t *A,
+    Fq *v,
+    const Fq *A,
     int col,
     int n);
 
 void pmod_mat_linear_combination(
-    pmod_mat_t *out,
-    const pmod_mat_t *matrices,
-    const GFq_t *coeffs,
+    Fq *out,
+    const Fq *matrices,
+    const Fq *coeffs,
     int count,
     int n);
 
 void pmod_mat_diag_scale(
-    pmod_mat_t *out,
-    const GFq_t *left_diag,
-    const pmod_mat_t *A,
-    const GFq_t *right_diag,
+    Fq *out,
+    const Fq *left_diag,
+    const Fq *A,
+    const Fq *right_diag,
     int n);
 
 /*

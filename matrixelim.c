@@ -7,37 +7,37 @@ typedef struct {
   int pivot_cols[MEDS_n];
 } pmod_elim_info_t;
 
-static void swap_rows(pmod_mat_t *A, int r1, int r2, int n)
+static void swap_rows(Fq *A, int r1, int r2, int n)
 {
   if (r1 == r2)
     return;
 
   for (int c = 0; c < n; c++)
   {
-    GFq_t tmp = A[r1 * n + c];
+    Fq tmp = A[r1 * n + c];
     A[r1 * n + c] = A[r2 * n + c];
     A[r2 * n + c] = tmp;
   }
 }
 
-static void scale_row(pmod_mat_t *A, int row, GFq_t scale, int n)
+static void scale_row(Fq *A, int row, Fq scale, int n)
 {
   for (int c = 0; c < n; c++)
     A[row * n + c] = GF_mul(A[row * n + c], scale);
 }
 
-static void row_sub_mul(pmod_mat_t *A, int dst, int src, GFq_t factor, int n)
+static void row_sub_mul(Fq *A, int dst, int src, Fq factor, int n)
 {
   for (int c = 0; c < n; c++)
   {
-    GFq_t t = GF_mul(factor, A[src * n + c]);
+    Fq t = GF_mul(factor, A[src * n + c]);
     A[dst * n + c] = GF_sub(A[dst * n + c], t);
   }
 }
 
 static pmod_elim_info_t pmod_mat_rref_core_vartime(
-    pmod_mat_t *A,
-    pmod_mat_t *rhs,
+    Fq *A,
+    Fq *rhs,
     int n)
 {
   pmod_elim_info_t info = {0};
@@ -63,7 +63,7 @@ static pmod_elim_info_t pmod_mat_rref_core_vartime(
     if (rhs != NULL)
       swap_rows(rhs, pivot_row, pivot, n);
 
-    GFq_t inv = GF_inv(A[pivot_row * n + col]);
+    Fq inv = GF_inv(A[pivot_row * n + col]);
     scale_row(A, pivot_row, inv, n);
     if (rhs != NULL)
       scale_row(rhs, pivot_row, inv, n);
@@ -73,7 +73,7 @@ static pmod_elim_info_t pmod_mat_rref_core_vartime(
       if (r == pivot_row)
         continue;
 
-      GFq_t factor = A[r * n + col];
+      Fq factor = A[r * n + col];
       if (factor == 0)
         continue;
 
@@ -91,10 +91,10 @@ static pmod_elim_info_t pmod_mat_rref_core_vartime(
 }
 
 int pmod_mat_rank_vartime(
-    const pmod_mat_t *A,
+    const Fq *A,
     int n)
 {
-  pmod_mat_t tmp[n * n];
+  Fq tmp[n * n];
   pmod_mat_copy(tmp, A, n);
 
   pmod_elim_info_t info = pmod_mat_rref_core_vartime(tmp, NULL, n);
@@ -103,19 +103,19 @@ int pmod_mat_rank_vartime(
 }
 
 int pmod_mat_is_invertible_vartime(
-    const pmod_mat_t *A,
+    const Fq *A,
     int n)
 {
   return pmod_mat_rank_vartime(A, n) == n;
 }
 
 int pmod_mat_inv_vartime(
-    pmod_mat_t *A_inv,
-    const pmod_mat_t *A,
+    Fq *A_inv,
+    const Fq *A,
     int n)
 {
-  pmod_mat_t left[n * n];
-  pmod_mat_t right[n * n];
+  Fq left[n * n];
+  Fq right[n * n];
 
   pmod_mat_copy(left, A, n);
   pmod_mat_identity(right, n);
@@ -140,11 +140,11 @@ int pmod_mat_inv(Fq *B, const Fq *A, int A_r, int A_c)
 }
 
 int pmod_mat_right_kernel_corank1_vartime(
-    GFq_t *kernel,
-    const pmod_mat_t *A,
+    Fq *kernel,
+    const Fq *A,
     int n)
 {
-  pmod_mat_t R[n * n];
+  Fq R[n * n];
   pmod_mat_copy(R, A, n);
 
   pmod_elim_info_t info = pmod_mat_rref_core_vartime(R, NULL, n);
@@ -184,26 +184,26 @@ int pmod_mat_right_kernel_corank1_vartime(
 }
 
 int pmod_mat_left_kernel_corank1_vartime(
-    GFq_t *kernel,
-    const pmod_mat_t *A,
+    Fq *kernel,
+    const Fq *A,
     int n)
 {
-  pmod_mat_t AT[n * n];
+  Fq AT[n * n];
   pmod_mat_transpose(AT, A, n);
 
   return pmod_mat_right_kernel_corank1_vartime(kernel, AT, n);
 }
 
 int pmod_vec_in_span_vartime(
-    const GFq_t *v,
-    const GFq_t *basis,
+    const Fq *v,
+    const Fq *basis,
     int basis_count,
     int n)
 {
   if (basis_count > n)
     return 1;
 
-  pmod_mat_t B[n * n];
+  Fq B[n * n];
   pmod_mat_zero(B, n);
 
   for (int i = 0; i < basis_count; i++)
@@ -222,15 +222,15 @@ int pmod_vec_in_span_vartime(
 }
 
 int pmod_vec_extends_independent_set_vartime(
-    const GFq_t *v,
-    const GFq_t *basis,
+    const Fq *v,
+    const Fq *basis,
     int basis_count,
     int n)
 {
   if (basis_count >= n)
     return 0;
 
-  pmod_mat_t B[n * n];
+  Fq B[n * n];
   pmod_mat_zero(B, n);
 
   for (int i = 0; i < basis_count; i++)

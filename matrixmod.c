@@ -3,12 +3,12 @@
 
 #include "matrixmod.h"
 
-void pmod_mat_print(const pmod_mat_t *M, int M_r, int M_c)
+void pmod_mat_print(const Fq *M, int M_r, int M_c)
 {
   pmod_mat_fprint(stdout, M, M_r, M_c);
 }
 
-void pmod_mat_fprint(FILE *stream, const pmod_mat_t *M, int M_r, int M_c)
+void pmod_mat_fprint(FILE *stream, const Fq *M, int M_r, int M_c)
 {
   for (int r = 0; r < M_r; r++)
   {
@@ -20,17 +20,17 @@ void pmod_mat_fprint(FILE *stream, const pmod_mat_t *M, int M_r, int M_c)
   }
 }
 
-void pmod_mat_zero(pmod_mat_t *A, int n)
+void pmod_mat_zero(Fq *A, int n)
 {
   memset(A, 0, (size_t)n * n * sizeof(*A));
 }
 
-void pmod_mat_copy(pmod_mat_t *dst, const pmod_mat_t *src, int n)
+void pmod_mat_copy(Fq *dst, const Fq *src, int n)
 {
   memcpy(dst, src, (size_t)n * n * sizeof(*dst));
 }
 
-void pmod_mat_identity(pmod_mat_t *A, int n)
+void pmod_mat_identity(Fq *A, int n)
 {
   pmod_mat_zero(A, n);
 
@@ -39,8 +39,8 @@ void pmod_mat_identity(pmod_mat_t *A, int n)
 }
 
 void pmod_mat_transpose(
-    pmod_mat_t *AT,
-    const pmod_mat_t *A,
+    Fq *AT,
+    const Fq *A,
     int n)
 {
   if (AT == A)
@@ -48,7 +48,7 @@ void pmod_mat_transpose(
     for (int r = 0; r < n; r++)
       for (int c = r + 1; c < n; c++)
       {
-        GFq_t tmp = AT[r * n + c];
+        Fq tmp = AT[r * n + c];
         AT[r * n + c] = AT[c * n + r];
         AT[c * n + r] = tmp;
       }
@@ -62,12 +62,12 @@ void pmod_mat_transpose(
 }
 
 void pmod_mat_mul(
-    pmod_mat_t *C,
-    const pmod_mat_t *A,
-    const pmod_mat_t *B,
+    Fq *C,
+    const Fq *A,
+    const Fq *B,
     int n)
 {
-  pmod_mat_t tmp[n * n];
+  Fq tmp[n * n];
 
   for (int r = 0; r < n; r++)
     for (int c = 0; c < n; c++)
@@ -77,7 +77,7 @@ void pmod_mat_mul(
       for (int k = 0; k < n; k++)
         acc += (uint64_t)A[r * n + k] * B[k * n + c];
 
-      tmp[r * n + c] = (GFq_t)(acc % MEDS_p);
+      tmp[r * n + c] = (Fq)(acc % MEDS_p);
     }
 
   memcpy(C, tmp, sizeof(tmp));
@@ -94,7 +94,10 @@ void pmod_mat_mul_rect(
     int B_r,
     int B_c)
 {
-  GFq_t tmp[C_r*C_c];
+  (void)A_r;
+  (void)B_r;
+
+  Fq tmp[C_r*C_c];
 
   for (int c = 0; c < C_c; c++)
     for (int r = 0; r < C_r; r++)
@@ -113,12 +116,12 @@ void pmod_mat_mul_rect(
 }
 
 void pmod_mat_vec_mul(
-    GFq_t *out,
-    const pmod_mat_t *A,
-    const GFq_t *v,
+    Fq *out,
+    const Fq *A,
+    const Fq *v,
     int n)
 {
-  GFq_t tmp[n];
+  Fq tmp[n];
 
   for (int r = 0; r < n; r++)
   {
@@ -127,19 +130,19 @@ void pmod_mat_vec_mul(
     for (int c = 0; c < n; c++)
       acc += (uint64_t)A[r * n + c] * v[c];
 
-    tmp[r] = (GFq_t)(acc % MEDS_p);
+    tmp[r] = (Fq)(acc % MEDS_p);
   }
 
   memcpy(out, tmp, sizeof(tmp));
 }
 
 void pmod_mat_transpose_vec_mul(
-    GFq_t *out,
-    const pmod_mat_t *A,
-    const GFq_t *v,
+    Fq *out,
+    const Fq *A,
+    const Fq *v,
     int n)
 {
-  GFq_t tmp[n];
+  Fq tmp[n];
 
   for (int c = 0; c < n; c++)
   {
@@ -148,16 +151,16 @@ void pmod_mat_transpose_vec_mul(
     for (int r = 0; r < n; r++)
       acc += (uint64_t)A[r * n + c] * v[r];
 
-    tmp[c] = (GFq_t)(acc % MEDS_p);
+    tmp[c] = (Fq)(acc % MEDS_p);
   }
 
   memcpy(out, tmp, sizeof(tmp));
 }
 
 void pmod_mat_set_col(
-    pmod_mat_t *A,
+    Fq *A,
     int col,
-    const GFq_t *v,
+    const Fq *v,
     int n)
 {
   for (int r = 0; r < n; r++)
@@ -165,8 +168,8 @@ void pmod_mat_set_col(
 }
 
 void pmod_mat_get_col(
-    GFq_t *v,
-    const pmod_mat_t *A,
+    Fq *v,
+    const Fq *A,
     int col,
     int n)
 {
@@ -175,9 +178,9 @@ void pmod_mat_get_col(
 }
 
 void pmod_mat_linear_combination(
-    pmod_mat_t *out,
-    const pmod_mat_t *matrices,
-    const GFq_t *coeffs,
+    Fq *out,
+    const Fq *matrices,
+    const Fq *coeffs,
     int count,
     int n)
 {
@@ -188,23 +191,23 @@ void pmod_mat_linear_combination(
     for (int i = 0; i < count; i++)
       acc += (uint64_t)coeffs[i] * matrices[i * n * n + pos];
 
-    out[pos] = (GFq_t)(acc % MEDS_p);
+    out[pos] = (Fq)(acc % MEDS_p);
   }
 }
 
 void pmod_mat_diag_scale(
-    pmod_mat_t *out,
-    const GFq_t *left_diag,
-    const pmod_mat_t *A,
-    const GFq_t *right_diag,
+    Fq *out,
+    const Fq *left_diag,
+    const Fq *A,
+    const Fq *right_diag,
     int n)
 {
-  pmod_mat_t tmp[n * n];
+  Fq tmp[n * n];
 
   for (int i = 0; i < n; i++)
     for (int j = 0; j < n; j++)
     {
-      GFq_t x = GF_mul(left_diag[i], A[i * n + j]);
+      Fq x = GF_mul(left_diag[i], A[i * n + j]);
       tmp[i * n + j] = GF_mul(x, right_diag[j]);
     }
 
@@ -244,7 +247,7 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
     if (pivot == 0)
       return -1;
 
-    uint64_t pivot_inv = GF_inv((GFq_t)pivot);
+    uint64_t pivot_inv = GF_inv((Fq)pivot);
 
     // Normalize the pivot row.
     for (int c = r; c < M_c; c++)
@@ -274,7 +277,7 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
         reduced_entry += MEDS_p * (reduced_entry < 0);
 
         pmod_mat_set_entry(
-            M, M_r, M_c, r2, c, (GFq_t)reduced_entry);
+            M, M_r, M_c, r2, c, (Fq)reduced_entry);
       }
     }
   }
@@ -302,7 +305,7 @@ int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
       reduced_pivot_entry += MEDS_p * (reduced_pivot_entry < 0);
 
       pmod_mat_set_entry(
-          M, M_r, M_c, r2, r, (GFq_t)reduced_pivot_entry);
+          M, M_r, M_c, r2, r, (Fq)reduced_pivot_entry);
 
       for (int c = M_r; c < M_c; c++)
       {
@@ -318,7 +321,7 @@ int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
         reduced_entry += MEDS_p * (reduced_entry < 0);
 
         pmod_mat_set_entry(
-            M, M_r, M_c, r2, c, (GFq_t)reduced_entry);
+            M, M_r, M_c, r2, c, (Fq)reduced_entry);
       }
     }
   }

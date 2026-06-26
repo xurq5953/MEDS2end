@@ -1,6 +1,6 @@
 #include "field.h"
 
-GFq_t GF_inv(GFq_t val)
+Fq GF_inv(Fq val)
 {
   if (MEDS_p == 8191)
   {
@@ -23,7 +23,7 @@ GFq_t GF_inv(GFq_t val)
     uint64_t tmp_16 = (tmp_15 * tmp_15) % MEDS_p;
     uint64_t tmp_17 = (tmp_16 * tmp_3) % MEDS_p;
 
-    return (GFq_t)tmp_17;
+    return (Fq)tmp_17;
   }
   else
   {
@@ -35,16 +35,16 @@ GFq_t GF_inv(GFq_t val)
       if ((exponent & 1) != 0)
         t = (t * (uint64_t)val) % MEDS_p;
 
-      val = (GFq_t)(((uint64_t)val * (uint64_t)val) % MEDS_p);
+      val = (Fq)(((uint64_t)val * (uint64_t)val) % MEDS_p);
 
       exponent >>= 1;
     }
 
-    return (GFq_t)t;
+    return (Fq)t;
   }
 }
 
-int GF_inv_checked(GFq_t *out, GFq_t a)
+int GF_inv_checked(Fq *out, Fq a)
 {
   if (a == 0)
     return -1;
@@ -54,14 +54,14 @@ int GF_inv_checked(GFq_t *out, GFq_t a)
 }
 
 int GF_batch_inv(
-    GFq_t *out,
-    const GFq_t *in,
+    Fq *out,
+    const Fq *in,
     size_t count)
 {
   if (count == 0)
     return 0;
 
-  GFq_t prefix[count];
+  Fq prefix[count];
 
   if (in[0] == 0)
     return -1;
@@ -76,7 +76,7 @@ int GF_batch_inv(
     prefix[i] = GF_mul(prefix[i - 1], in[i]);
   }
 
-  GFq_t acc;
+  Fq acc;
   if (GF_inv_checked(&acc, prefix[count - 1]) != 0)
     return -1;
 
