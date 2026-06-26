@@ -4,12 +4,12 @@
 #include "params.h"
 #include"matrixmod.h"
 
-void pmod_mat_print(pmod_mat_t *M, int M_r, int M_c)
+void pmod_mat_print(Fq *M, int M_r, int M_c)
 {
   pmod_mat_fprint(stdout, M, M_r, M_c);
 }
 
-void pmod_mat_fprint(FILE *stream, pmod_mat_t *M, int M_r, int M_c)
+void pmod_mat_fprint(FILE *stream, Fq *M, int M_r, int M_c)
 {
   for (int r = 0; r < M_r; r++)
   {
@@ -21,7 +21,7 @@ void pmod_mat_fprint(FILE *stream, pmod_mat_t *M, int M_r, int M_c)
   }
 }
 
-void pmod_mat_mul(pmod_mat_t *C, int C_r, int C_c, pmod_mat_t *A, int A_r, int A_c, pmod_mat_t *B, int B_r, int B_c)
+void pmod_mat_mul(Fq *C, int C_r, int C_c, Fq *A, int A_r, int A_c, Fq *B, int B_r, int B_c)
 {
   GFq_t tmp[C_r*C_c];
 
@@ -41,7 +41,7 @@ void pmod_mat_mul(pmod_mat_t *C, int C_r, int C_c, pmod_mat_t *A, int A_r, int A
       pmod_mat_set_entry(C, C_r, C_c, r, c, tmp[r*C_c + c]);
 }
 
-int pmod_mat_syst_ct(pmod_mat_t *M, int M_r, int M_c)
+int pmod_mat_syst_ct(Fq *M, int M_r, int M_c)
 {
   if (pmod_mat_row_echelon_ct(M, M_r, M_c) < 0)
     return -1;
@@ -49,7 +49,7 @@ int pmod_mat_syst_ct(pmod_mat_t *M, int M_r, int M_c)
   return pmod_mat_back_substitution_ct(M, M_r, M_c);
 }
 
-int pmod_mat_row_echelon_ct(pmod_mat_t *M, int M_r, int M_c)
+int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
 {
   for (int r = 0; r < M_r; r++)
   {
@@ -106,7 +106,7 @@ int pmod_mat_row_echelon_ct(pmod_mat_t *M, int M_r, int M_c)
   return 0;
 }
 
-int pmod_mat_back_substitution_ct(pmod_mat_t *M, int M_r, int M_c)
+int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
 {
   // back substitution
   for (int r = M_r - 1; r >= 0; r--)
@@ -188,9 +188,9 @@ GFq_t GF_inv(GFq_t val)
   }
 }
 
-int pmod_mat_inv(pmod_mat_t *B, pmod_mat_t *A, int A_r, int A_c)
+int pmod_mat_inv(Fq *B, Fq *A, int A_r, int A_c)
 {
-  pmod_mat_t M[A_r * A_c*2];
+  Fq M[A_r * A_c*2];
 
   for (int r = 0; r < A_r; r++)
   {

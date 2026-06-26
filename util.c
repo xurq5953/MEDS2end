@@ -40,7 +40,7 @@ GFq_t rnd_GF(keccak_state *shake)
   return val;
 }
 
-void rnd_sys_mat(pmod_mat_t *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
+void rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
 {
   keccak_state shake;
   shake256_absorb_once(&shake, seed, seed_len);
@@ -57,7 +57,7 @@ void rnd_sys_mat(pmod_mat_t *M, int M_r, int M_c, const uint8_t *seed, size_t se
         pmod_mat_set_entry(M, M_r, M_c, r, c, 0);
 }
 
-void rnd_inv_matrix(pmod_mat_t *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
+void rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
 {
   keccak_state shake;
   shake256_absorb_once(&shake, seed, seed_len);
@@ -69,7 +69,7 @@ redo:
       for (int c = 0; c < M_c; c++)
         pmod_mat_set_entry(M, M_r, M_c, r, c, rnd_GF(&shake));
 
-    pmod_mat_t tmp[M_r * M_c];
+    Fq tmp[M_r * M_c];
 
     memcpy(tmp, M, M_r * M_c * sizeof(GFq_t));
 
@@ -203,10 +203,10 @@ int parse_hash(const uint8_t *digest, int digest_len, uint8_t *h, int len_h)
   return 0;
 }
 
-int solve(pmod_mat_t *A, pmod_mat_t *B_inv, pmod_mat_t *G0prime, GFq_t Amm)
+int solve(Fq *A, Fq *B_inv, Fq *G0prime, GFq_t Amm)
 {
-  pmod_mat_t P0prime0[MEDS_m*MEDS_n];
-  pmod_mat_t P0prime1[MEDS_m*MEDS_n];
+  Fq P0prime0[MEDS_m*MEDS_n];
+  Fq P0prime1[MEDS_m*MEDS_n];
 
   for (int i = 0; i < MEDS_m*MEDS_n; i++)
   {
@@ -214,7 +214,7 @@ int solve(pmod_mat_t *A, pmod_mat_t *B_inv, pmod_mat_t *G0prime, GFq_t Amm)
     P0prime1[i] = G0prime[i + MEDS_m * MEDS_n];
   }
 
-  pmod_mat_t N[MEDS_n * MEDS_m];
+  Fq N[MEDS_n * MEDS_m];
 
   for (int i = 0; i < MEDS_m; i++)
     for (int j = 0; j < MEDS_n; j++)
@@ -223,7 +223,7 @@ int solve(pmod_mat_t *A, pmod_mat_t *B_inv, pmod_mat_t *G0prime, GFq_t Amm)
   //LOG_MAT(N, MEDS_n, MEDS_m);
 
 
-  pmod_mat_t M[MEDS_n*(MEDS_m + MEDS_m + 2)] = {0};
+  Fq M[MEDS_n*(MEDS_m + MEDS_m + 2)] = {0};
 
   for (int i = 0; i < MEDS_m; i++)
     for (int j = 0; j < MEDS_n; j++)
@@ -396,18 +396,18 @@ int solve(pmod_mat_t *A, pmod_mat_t *B_inv, pmod_mat_t *G0prime, GFq_t Amm)
 }
 
 
-void G_mat_init(pmod_mat_t *G, pmod_mat_t *Gsub[MEDS_k])
+void G_mat_init(Fq *G, Fq *Gsub[MEDS_k])
 {
   for (int i = 0; i < MEDS_k; i++)
     Gsub[i] = G + i*MEDS_m*MEDS_n;
 }
 
-void pi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *G)
+void pi(Fq *Gout, Fq *A, Fq *B, Fq *G)
 {
-  pmod_mat_t *G0sub[MEDS_k];
+  Fq *G0sub[MEDS_k];
   G_mat_init(G, G0sub);
 
-  pmod_mat_t *Gsub[MEDS_k];
+  Fq *Gsub[MEDS_k];
   G_mat_init(Gout, Gsub);
 
   for (int i = 0; i < MEDS_k; i++)
@@ -421,9 +421,9 @@ void pi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *G)
 #error "MEDS2endGen phi() assumes MEDS_m == MEDS_n == MEDS_k"
 #endif
 
-void phi(pmod_mat_t *Gout, pmod_mat_t *A, pmod_mat_t *B, pmod_mat_t *C, pmod_mat_t *G)
+void phi(Fq *Gout, Fq *A, Fq *B, Fq *C, Fq *G)
 {
-  pmod_mat_t tmp[MEDS_k * MEDS_m * MEDS_n];
+  Fq tmp[MEDS_k * MEDS_m * MEDS_n];
 
   pi(tmp, A, B, G);
 
