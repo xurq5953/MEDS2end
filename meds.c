@@ -22,7 +22,7 @@
 static void encode_mat_to_bs(bitstream_t *bs, const Fq *M, int elem_count)
 {
   for (int j = 0; j < elem_count; j++)
-    bs_write(bs, M[j], GFq_bits);
+    bs_write(bs, M[j], Fq_bits);
 
   bs_finalize(bs);
 }
@@ -30,7 +30,7 @@ static void encode_mat_to_bs(bitstream_t *bs, const Fq *M, int elem_count)
 static void decode_mat_from_bs(bitstream_t *bs, Fq *M, int elem_count)
 {
   for (int j = 0; j < elem_count; j++)
-    M[j] = bs_read(bs, GFq_bits);
+    M[j] = bs_read(bs, Fq_bits);
 
   bs_finalize(bs);
 }
@@ -75,7 +75,7 @@ static void encode_G_full(uint8_t out[MEDS_G_BYTES], const Fq *G)
   bs_init(&bs, out, MEDS_G_BYTES);
 
   for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
-    bs_write(&bs, G[j], GFq_bits);
+    bs_write(&bs, G[j], Fq_bits);
 
   bs_finalize(&bs);
 }
@@ -91,7 +91,7 @@ static void load_public_key_matrices(Fq *G[MEDS_s], const unsigned char *pk)
   for (int si = 1; si < MEDS_s; si++)
   {
     for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
-      G[si][j] = bs_read(&bs, GFq_bits);
+      G[si][j] = bs_read(&bs, Fq_bits);
 
     bs_finalize(&bs);
   }
@@ -111,7 +111,7 @@ static void load_secret_key_matrices(
   for (int si = 1; si < MEDS_s; si++)
   {
     for (int j = 0; j < MEDS_m*MEDS_m; j++)
-      A_inv[si][j] = bs_read(&bs, GFq_bits);
+      A_inv[si][j] = bs_read(&bs, Fq_bits);
 
     bs_finalize(&bs);
   }
@@ -119,7 +119,7 @@ static void load_secret_key_matrices(
   for (int si = 1; si < MEDS_s; si++)
   {
     for (int j = 0; j < MEDS_n*MEDS_n; j++)
-      B_inv[si][j] = bs_read(&bs, GFq_bits);
+      B_inv[si][j] = bs_read(&bs, Fq_bits);
 
     bs_finalize(&bs);
   }
@@ -127,7 +127,7 @@ static void load_secret_key_matrices(
   for (int si = 1; si < MEDS_s; si++)
   {
     for (int j = 0; j < MEDS_k*MEDS_k; j++)
-      C_inv[si][j] = bs_read(&bs, GFq_bits);
+      C_inv[si][j] = bs_read(&bs, Fq_bits);
 
     bs_finalize(&bs);
   }
@@ -252,7 +252,7 @@ int crypto_sign_keypair(
     for (int si = 1; si < MEDS_s; si++)
     {
       for (int j = 0; j < MEDS_k * MEDS_m * MEDS_n; j++)
-        bs_write(&bs, G[si][j], GFq_bits);
+        bs_write(&bs, G[si][j], Fq_bits);
 
       bs_finalize(&bs);
     }
@@ -282,7 +282,7 @@ int crypto_sign_keypair(
     for (int si = 1; si < MEDS_s; si++)
     {
       for (int j = 0; j < MEDS_m*MEDS_m; j++)
-        bs_write(&bs, A_inv[si][j], GFq_bits);
+        bs_write(&bs, A_inv[si][j], Fq_bits);
 
       bs_finalize(&bs);
     }
@@ -290,7 +290,7 @@ int crypto_sign_keypair(
     for (int si = 1; si < MEDS_s; si++)
     {
       for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        bs_write(&bs, B_inv[si][j], GFq_bits);
+        bs_write(&bs, B_inv[si][j], Fq_bits);
 
       bs_finalize(&bs);
     }
@@ -298,7 +298,7 @@ int crypto_sign_keypair(
     for (int si = 1; si < MEDS_s; si++)
     {
       for (int j = 0; j < MEDS_k*MEDS_k; j++)
-        bs_write(&bs, C_inv[si][j], GFq_bits);
+        bs_write(&bs, C_inv[si][j], Fq_bits);
 
       bs_finalize(&bs);
     }

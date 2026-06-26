@@ -35,7 +35,7 @@ Fq rnd_GF(keccak_state *shake)
     for (int i = 0; i < sizeof(Fq); i++)
       val |= data[i] << (i*8);
 
-    val = val & ((1 << GFq_bits) - 1);
+    val = val & ((1 << Fq_bits) - 1);
   }
 
   return val;
