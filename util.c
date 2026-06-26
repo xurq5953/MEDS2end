@@ -131,7 +131,7 @@ redo:
   }
 }
 
-int parse_hash(uint8_t *digest, int digest_len, uint8_t *h, int len_h)
+int parse_hash(const uint8_t *digest, int digest_len, uint8_t *h, int len_h)
 {
   if (len_h < MEDS_t)
     return -1;

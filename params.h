@@ -6,8 +6,8 @@
 #define MEDS_digest_bytes 32
 #define MEDS_pub_seed_bytes 32
 #define MEDS_sec_seed_bytes 32
-#define MEDS_st_seed_bytes 16
-#define MEDS_st_salt_bytes 32
+#define MEDS_round_seed_bytes 16
+#define MEDS_salt_bytes 32
 
 #define MEDS_p 4093
 #define GFq_t uint16_t
@@ -22,10 +22,6 @@
 #define MEDS_t 1152
 #define MEDS_w 14
 
-#define MEDS_seed_tree_height 11
-#define SEED_TREE_size 4095
-#define MEDS_max_path_len 100
-
 #define MEDS_t_mask 0x000007FF
 #define MEDS_t_bytes 2
 
@@ -39,9 +35,12 @@
 #define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
 #define MEDS_SK_BYTES (MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_s - 1) * MEDS_MAT_BYTES)
 #define MEDS_RESPONSE_BYTES (MEDS_w * 3 * MEDS_MAT_BYTES)
-#define MEDS_PATH_BYTES (MEDS_max_path_len * MEDS_st_seed_bytes)
-#define MEDS_DIGEST_OFFSET (MEDS_RESPONSE_BYTES + MEDS_PATH_BYTES)
+#define MEDS_ZERO_SEED_COUNT (MEDS_t - MEDS_w)
+#define MEDS_ZERO_SEED_BYTES (MEDS_ZERO_SEED_COUNT * MEDS_round_seed_bytes)
+#define MEDS_RESPONSE_OFFSET 0
+#define MEDS_ZERO_SEED_OFFSET (MEDS_RESPONSE_OFFSET + MEDS_RESPONSE_BYTES)
+#define MEDS_DIGEST_OFFSET (MEDS_ZERO_SEED_OFFSET + MEDS_ZERO_SEED_BYTES)
 #define MEDS_SALT_OFFSET (MEDS_DIGEST_OFFSET + MEDS_digest_bytes)
-#define MEDS_SIG_BYTES (MEDS_RESPONSE_BYTES + MEDS_PATH_BYTES + MEDS_digest_bytes + MEDS_st_salt_bytes)
+#define MEDS_SIG_BYTES (MEDS_SALT_OFFSET + MEDS_salt_bytes)
 
 #endif

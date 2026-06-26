@@ -14,7 +14,6 @@
 
 #include "meds.h"
 
-#include "seed.h"
 #include "util.h"
 #include "bitstream.h"
 
@@ -34,6 +33,37 @@ static void decode_mat_from_bs(bitstream_t *bs, pmod_mat_t *M, int elem_count)
     M[j] = bs_read(bs, GFq_bits);
 
   bs_finalize(bs);
+}
+
+static void derive_round_matrices(
+    pmod_mat_t *A,
+    pmod_mat_t *B,
+    pmod_mat_t *C,
+    const uint8_t round_seed[MEDS_round_seed_bytes],
+    const uint8_t alpha[MEDS_salt_bytes],
+    uint32_t round_index
+  )
+{
+  uint8_t round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 4];
+  uint8_t sigma_A[MEDS_round_seed_bytes];
+  uint8_t sigma_B[MEDS_round_seed_bytes];
+  uint8_t sigma_C[MEDS_round_seed_bytes];
+
+  memcpy(round_input, alpha, MEDS_salt_bytes);
+  memcpy(round_input + MEDS_salt_bytes, round_seed, MEDS_round_seed_bytes);
+  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 0] = (uint8_t)(round_index & 0xff);
+  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 1] = (uint8_t)((round_index >> 8) & 0xff);
+  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 2] = (uint8_t)((round_index >> 16) & 0xff);
+  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 3] = (uint8_t)((round_index >> 24) & 0xff);
+
+  XOF((uint8_t*[]){sigma_A, sigma_B, sigma_C},
+      (size_t[]){MEDS_round_seed_bytes, MEDS_round_seed_bytes, MEDS_round_seed_bytes},
+      round_input, sizeof(round_input),
+      3);
+
+  rnd_inv_matrix(A, MEDS_m, MEDS_m, sigma_A, MEDS_round_seed_bytes);
+  rnd_inv_matrix(B, MEDS_n, MEDS_n, sigma_B, MEDS_round_seed_bytes);
+  rnd_inv_matrix(C, MEDS_k, MEDS_k, sigma_C, MEDS_round_seed_bytes);
 }
 
 static void encode_G_full(uint8_t out[MEDS_G_BYTES], const pmod_mat_t *G)
@@ -340,19 +370,13 @@ int crypto_sign(
   LOG_VEC(delta, MEDS_sec_seed_bytes);
 
 
-  uint8_t stree[MEDS_st_seed_bytes * SEED_TREE_size] = {0};
-  uint8_t alpha[MEDS_st_salt_bytes];
+  uint8_t alpha[MEDS_salt_bytes];
+  uint8_t round_seeds[MEDS_t][MEDS_round_seed_bytes];
 
-  uint8_t *rho = &stree[MEDS_st_seed_bytes * SEED_TREE_ADDR(0,0)];
-
-  XOF((uint8_t*[]){rho, alpha},
-      (size_t[]){MEDS_st_seed_bytes, MEDS_st_salt_bytes},
+  XOF((uint8_t*[]){alpha, (uint8_t*)round_seeds},
+      (size_t[]){MEDS_salt_bytes, MEDS_t * MEDS_round_seed_bytes},
       delta, MEDS_sec_seed_bytes,
       2);
-
-  t_hash(stree, alpha, 0, 0);
-
-  uint8_t *sigma = &stree[MEDS_st_seed_bytes * SEED_TREE_ADDR(MEDS_seed_tree_height, 0)];
 
 
   pmod_mat_t A_tilde_data[MEDS_t * MEDS_m * MEDS_m];
@@ -377,19 +401,7 @@ int crypto_sign(
   {
     pmod_mat_t G_tilde_ti[MEDS_k * MEDS_m * MEDS_n];
 
-    uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
-    uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
-    uint8_t sigma_C_tilde_i[MEDS_st_seed_bytes];
-
-    XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, sigma_C_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
-         (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
-         &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
-         4);
-
-
-    rnd_inv_matrix(A_tilde[i], MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
-    rnd_inv_matrix(B_tilde[i], MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
-    rnd_inv_matrix(C_tilde[i], MEDS_k, MEDS_k, sigma_C_tilde_i, MEDS_st_seed_bytes);
+    derive_round_matrices(A_tilde[i], B_tilde[i], C_tilde[i], round_seeds[i], alpha, (uint32_t)i);
 
     LOG_MAT_FMT(A_tilde[i], MEDS_m, MEDS_m, "A_tilde[%i]", i);
     LOG_MAT_FMT(B_tilde[i], MEDS_n, MEDS_n, "B_tilde[%i]", i);
@@ -425,15 +437,13 @@ int crypto_sign(
   LOG_VEC(h, MEDS_t);
 
 
+  memset(sm, 0, MEDS_SIG_BYTES);
+
   bitstream_t bs;
 
   bs_init(&bs, sm, MEDS_RESPONSE_BYTES);
 
-  uint8_t *path = sm + MEDS_RESPONSE_BYTES;
-
-  t_hash(stree, alpha, 0, 0);
-
-  stree_to_path(stree, h, path, alpha);
+  size_t response_count = 0;
 
   for (int i = 0; i < MEDS_t; i++)
   {
@@ -454,11 +464,32 @@ int crypto_sign(
       encode_mat_to_bs(&bs, mu, MEDS_m*MEDS_m);
       encode_mat_to_bs(&bs, nu, MEDS_n*MEDS_n);
       encode_mat_to_bs(&bs, eta, MEDS_k*MEDS_k);
+
+      response_count++;
     }
   }
 
+  if (response_count != MEDS_w || bs.byte_pos != MEDS_RESPONSE_BYTES || bs.bit_pos != 0)
+    return -1;
+
+  uint8_t *seed_out = sm + MEDS_ZERO_SEED_OFFSET;
+  size_t zero_seed_count = 0;
+
+  for (int i = 0; i < MEDS_t; i++)
+  {
+    if (h[i] == 0)
+    {
+      memcpy(seed_out, round_seeds[i], MEDS_round_seed_bytes);
+      seed_out += MEDS_round_seed_bytes;
+      zero_seed_count++;
+    }
+  }
+
+  if (zero_seed_count != MEDS_ZERO_SEED_COUNT || seed_out != sm + MEDS_DIGEST_OFFSET)
+    return -1;
+
   memcpy(sm + MEDS_DIGEST_OFFSET, digest, MEDS_digest_bytes);
-  memcpy(sm + MEDS_SALT_OFFSET, alpha, MEDS_st_salt_bytes);
+  memcpy(sm + MEDS_SALT_OFFSET, alpha, MEDS_salt_bytes);
   memcpy(sm + MEDS_SIG_BYTES, m, mlen);
 
   *smlen = MEDS_SIG_BYTES + mlen;
@@ -491,9 +522,9 @@ int crypto_sign_open(
   for (int i = 0; i < MEDS_s; i++)
     LOG_MAT_FMT(G[i], MEDS_k, MEDS_m*MEDS_n, "G[%i]", i);
 
-  uint8_t *digest = (uint8_t*)sm + MEDS_DIGEST_OFFSET;
+  const uint8_t *digest = sm + MEDS_DIGEST_OFFSET;
 
-  uint8_t *alpha = (uint8_t*)sm + MEDS_SALT_OFFSET;
+  const uint8_t *alpha = sm + MEDS_SALT_OFFSET;
 
   LOG_VEC(digest, MEDS_digest_bytes);
 
@@ -506,13 +537,9 @@ int crypto_sign_open(
 
   bs_init(&bs, (uint8_t*)sm, MEDS_RESPONSE_BYTES);
 
-  uint8_t *path = (uint8_t*)sm + MEDS_RESPONSE_BYTES;
-
-  uint8_t stree[MEDS_st_seed_bytes * SEED_TREE_size] = {0};
-
-  path_to_stree(stree, h, path, alpha);
-
-  uint8_t *sigma = &stree[MEDS_st_seed_bytes * SEED_TREE_ADDR(MEDS_seed_tree_height, 0)];
+  const uint8_t *seed_in = sm + MEDS_ZERO_SEED_OFFSET;
+  size_t response_count = 0;
+  size_t zero_seed_count = 0;
 
   pmod_mat_t G_hat_i[MEDS_k*MEDS_m*MEDS_n];
 
@@ -554,32 +581,18 @@ int crypto_sign_open(
       phi(G_hat_i, mu, nu, eta, G[h[i]]);
 
       LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
+
+      response_count++;
     }
     else
     {
-      LOG_VEC_FMT(&sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes, "seeds[%i]", i);
-
-      uint8_t sigma_A_tilde_i[MEDS_st_seed_bytes];
-      uint8_t sigma_B_tilde_i[MEDS_st_seed_bytes];
-      uint8_t sigma_C_tilde_i[MEDS_st_seed_bytes];
-
-      XOF((uint8_t*[]){sigma_A_tilde_i, sigma_B_tilde_i, sigma_C_tilde_i, &sigma[i*MEDS_st_seed_bytes]},
-          (size_t[]){MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes, MEDS_st_seed_bytes},
-          &sigma[i*MEDS_st_seed_bytes], MEDS_st_seed_bytes,
-          4);
+      LOG_VEC_FMT(seed_in, MEDS_round_seed_bytes, "seeds[%i]", i);
 
       pmod_mat_t A_tilde[MEDS_m*MEDS_m];
       pmod_mat_t B_tilde[MEDS_n*MEDS_n];
       pmod_mat_t C_tilde[MEDS_k*MEDS_k];
 
-      LOG_VEC(sigma_A_tilde_i, MEDS_st_seed_bytes);
-      rnd_inv_matrix(A_tilde, MEDS_m, MEDS_m, sigma_A_tilde_i, MEDS_st_seed_bytes);
-
-      LOG_VEC(sigma_B_tilde_i, MEDS_st_seed_bytes);
-      rnd_inv_matrix(B_tilde, MEDS_n, MEDS_n, sigma_B_tilde_i, MEDS_st_seed_bytes);
-
-      LOG_VEC(sigma_C_tilde_i, MEDS_st_seed_bytes);
-      rnd_inv_matrix(C_tilde, MEDS_k, MEDS_k, sigma_C_tilde_i, MEDS_st_seed_bytes);
+      derive_round_matrices(A_tilde, B_tilde, C_tilde, seed_in, alpha, (uint32_t)i);
 
       LOG_MAT_FMT(A_tilde, MEDS_m, MEDS_m, "A_tilde[%i]", i);
       LOG_MAT_FMT(B_tilde, MEDS_n, MEDS_n, "B_tilde[%i]", i);
@@ -589,6 +602,9 @@ int crypto_sign_open(
       phi(G_hat_i, A_tilde, B_tilde, C_tilde, G[0]);
 
       LOG_MAT_FMT(G_hat_i, MEDS_k, MEDS_m*MEDS_n, "G_hat[%i]", i);
+
+      seed_in += MEDS_round_seed_bytes;
+      zero_seed_count++;
     }
 
 
@@ -598,6 +614,13 @@ int crypto_sign_open(
  
     shake256_absorb(&shake, bs_buf, MEDS_G_BYTES);
   }
+
+  if (response_count != MEDS_w ||
+      zero_seed_count != MEDS_ZERO_SEED_COUNT ||
+      seed_in != sm + MEDS_DIGEST_OFFSET ||
+      bs.byte_pos != MEDS_RESPONSE_BYTES ||
+      bs.bit_pos != 0)
+    return -1;
 
   shake256_absorb(&shake, (uint8_t*)(sm + MEDS_SIG_BYTES), smlen - MEDS_SIG_BYTES);
 

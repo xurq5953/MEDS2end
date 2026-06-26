@@ -17,7 +17,7 @@ endif
 
 CFLAGS += -I$(OBJDIR) -INIST
 
-EXES = bench PQCgenKAT_sign
+EXES = bench PQCgenKAT_sign test_meds2end_seedless
 
 TARGETS := ${EXES:%=$(OBJDIR)/%}
 
@@ -25,7 +25,7 @@ TARGETS := ${EXES:%=$(OBJDIR)/%}
 
 default: $(EXES)
 
-OBJECTS = meds.o util.o seed.o osfreq.o fips202.o matrixmod.o bitstream.o randombytes.o
+OBJECTS = meds.o util.o osfreq.o fips202.o matrixmod.o bitstream.o randombytes.o
 HEADERS = $(wildcard *.h)
 
 BUILDOBJ := ${OBJECTS:%=$(OBJDIR)/%}

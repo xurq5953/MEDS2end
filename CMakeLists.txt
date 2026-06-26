@@ -26,7 +26,6 @@ set(OBJDIR_PATH "${CMAKE_SOURCE_DIR}/${OBJDIR}")
 set(COMMON_SOURCES
   meds.c
   util.c
-  seed.c
   osfreq.c
   fips202.c
   matrixmod.c
@@ -34,7 +33,7 @@ set(COMMON_SOURCES
   randombytes.c
 )
 
-set(EXES bench PQCgenKAT_sign)
+set(EXES bench PQCgenKAT_sign test_meds2end_seedless)
 
 file(GLOB KAT_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/PQCsignKAT_*")
 

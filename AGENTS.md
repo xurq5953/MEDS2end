@@ -36,10 +36,9 @@ Core files are expected to include:
 - `api.h`: NIST/PQC-style public API constants.
 - `matrixmod.c`, `matrixmod.h`: finite-field matrix operations, matrix multiplication, inversion, systematic form, and the original MEDS `pi` operation.
 - `bitstream.c`, `bitstream.h`: bit-level packing of field elements.
-- `seed.c`, `seed.h`: seed tree and seed-path logic.
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation.
 - `randombytes.c`, `randombytes.h`: randomness interface.
-- `test.c` and `PQCgenKAT_sign.c`: functional and KAT-style tests when available.
+- `test_meds2end_seedless.c`, `PQCgenKAT_sign.c`: functional and KAT-style tests when available.
 
 Before editing, inspect the actual repository because file names and build targets may differ.
 
@@ -187,7 +186,7 @@ The multiplication order is part of correctness. Do not change it.
 
 For each round `j`:
 
-- If `h[j] == 0`, recover the seed and regenerate
+- If `h[j] == 0`, read the next zero-challenge round seed from the signature and regenerate
 
 ```text
 A_hat_j, B_hat_j, C_hat_j
@@ -241,9 +240,18 @@ MEDS_SK_BYTES  = MEDS_sec_seed_bytes + MEDS_pub_seed_bytes
                = 32 + 32 + 3 * 3 * 294
                = 2710
 
-MEDS_SIG_BYTES = old_nonresponse_part + MEDS_w * 3 * MEDS_MAT_BYTES
-               = 1664 + 14 * 3 * 294
-               = 14012
+MEDS_RESPONSE_BYTES  = MEDS_w * 3 * MEDS_MAT_BYTES
+                    = 14 * 3 * 294
+                    = 12348
+
+MEDS_ZERO_SEED_BYTES = (MEDS_t - MEDS_w) * MEDS_round_seed_bytes
+                    = (1152 - 14) * 16
+                    = 18208
+
+MEDS_SIG_BYTES      = MEDS_RESPONSE_BYTES + MEDS_ZERO_SEED_BYTES
+                      + MEDS_digest_bytes + MEDS_salt_bytes
+                    = 12348 + 18208 + 32 + 32
+                    = 30620
 ```
 
 If the task changes whether `G_0` is stored as a seed or as a full matrix, recompute these sizes and update both `params.h` and `api.h` together.
@@ -306,13 +314,24 @@ Signature response section after final migration:
 for each nonzero h[j]: Enc(mu_j) || Enc(nu_j) || Enc(eta_j)
 ```
 
-The rest of the signature remains:
+Zero-challenge seed section after removing the SeedTree optimization:
 
 ```text
-responses || seed_tree_path || digest || salt || message
+for each zero h[j] in increasing j: round_seed_j
 ```
 
-unless the task explicitly changes the signed-message layout.
+The signed-message layout is:
+
+```text
+responses || zero_challenge_seeds || digest || salt || message
+```
+
+Round seeds are derived deterministically as:
+
+```text
+XOF(delta) -> alpha || sigma_0 || ... || sigma_{t-1}
+XOF(alpha || sigma_j || LE32(j)) -> sigma_A_j || sigma_B_j || sigma_C_j
+```
 
 ### Matrix and field arithmetic
 
@@ -356,6 +375,7 @@ A task is not complete until all relevant items are true:
 - The code builds without warnings introduced by the change.
 - Key generation, signing, and verification succeed for multiple random messages.
 - Verification fails when the public key, signature, digest, or a response matrix is tampered with.
+- Verification fails when a zero-challenge round seed is tampered with.
 - `params.h` and `api.h` byte-size constants agree with actual serialized lengths.
 - Signing and verification hash exactly the same byte sequence for all reconstructed commitments.
 - No final MEDS2endGen path still depends on MEDS public-key compression, `solve()`, or systematic-form normalization of `Phi` outputs.
@@ -386,4 +406,3 @@ When reporting back, summarize:
 - size constants changed;
 - tests run and their results;
 - any remaining risks or assumptions.
-
