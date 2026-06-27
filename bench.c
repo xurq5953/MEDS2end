@@ -40,13 +40,13 @@ int main(int argc, char *argv[])
   unsigned long long sig_len = sizeof(sig);
 
 
-  printf("m:    %i\n", MEDS_m);
+  printf("m:    %i\n", MEDS_n);
   printf("n:    %i\n", MEDS_n);
   printf("q:    %i\n", MEDS_p);
-  printf("k:    %i\n", MEDS_k);
-  printf("s:    %i\n", MEDS_s);
-  printf("t:    %i\n", MEDS_t);
-  printf("w:    %i\n", MEDS_w);
+  printf("k:    %i\n", MEDS_n);
+  printf("s:    %i\n", MEDS_X);
+  printf("t:    %i\n", MEDS_r);
+  printf("w:    %i\n", MEDS_K);
 
   printf("pk:   %i bytes\n", MEDS_PK_BYTES);
 

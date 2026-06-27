@@ -74,16 +74,16 @@ m = n = l
 The current C code may still use historical MEDS macro names:
 
 ```text
-MEDS_m
 MEDS_n
-MEDS_k
+MEDS_n
+MEDS_n
 ```
 
 For the current equal-dimension parameter set, these are expected to satisfy:
 
 ```text
-MEDS_m == MEDS_n
-MEDS_n == MEDS_k
+MEDS_n == MEDS_n
+MEDS_n == MEDS_n
 ```
 
 Use macros instead of hard-coded numeric dimensions.

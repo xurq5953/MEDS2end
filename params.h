@@ -16,13 +16,11 @@ typedef uint16_t Fq;
 #define Fq_bits 12
 #define Fq_bytes 2
 
-#define MEDS_m 22
 #define MEDS_n 22
-#define MEDS_k 22
 
-#define MEDS_s 4
-#define MEDS_t 1152
-#define MEDS_w 14
+#define MEDS_X 4
+#define MEDS_r 144
+#define MEDS_K 14
 
 #define MEDS_t_mask 0x000007FF
 #define MEDS_t_bytes 2
@@ -33,7 +31,7 @@ typedef uint16_t Fq;
 #define CEILING(x,y) MEDS_CEIL_DIV(x,y)
 
 #define MEDS_MAT_BYTES MEDS_CEIL_DIV((MEDS_n * MEDS_n) * Fq_bits, 8)
-#define MEDS_G_BYTES MEDS_CEIL_DIV((MEDS_k * MEDS_m * MEDS_n) * Fq_bits, 8)
+#define MEDS_G_BYTES MEDS_CEIL_DIV((MEDS_n * MEDS_n * MEDS_n) * Fq_bits, 8)
 #define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
 #define MEDS_SK_BYTES (MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_s - 1) * MEDS_MAT_BYTES)
 #define MEDS_RESPONSE_BYTES (MEDS_w * 3 * MEDS_MAT_BYTES)
