@@ -32,10 +32,10 @@ typedef uint16_t Fq;
 
 #define MEDS_MAT_BYTES MEDS_CEIL_DIV((MEDS_n * MEDS_n) * Fq_bits, 8)
 #define MEDS_G_BYTES MEDS_CEIL_DIV((MEDS_n * MEDS_n * MEDS_n) * Fq_bits, 8)
-#define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_s - 1) * MEDS_G_BYTES)
-#define MEDS_SK_BYTES (MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_s - 1) * MEDS_MAT_BYTES)
-#define MEDS_RESPONSE_BYTES (MEDS_w * 3 * MEDS_MAT_BYTES)
-#define MEDS_ZERO_SEED_COUNT (MEDS_t - MEDS_w)
+#define MEDS_PK_BYTES (MEDS_pub_seed_bytes + (MEDS_X - 1) * MEDS_G_BYTES)
+#define MEDS_SK_BYTES (MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + 3 * (MEDS_X - 1) * MEDS_MAT_BYTES)
+#define MEDS_RESPONSE_BYTES (MEDS_K * 3 * MEDS_MAT_BYTES)
+#define MEDS_ZERO_SEED_COUNT (MEDS_r - MEDS_K)
 #define MEDS_ZERO_SEED_BYTES (MEDS_ZERO_SEED_COUNT * MEDS_round_seed_bytes)
 #define MEDS_RESPONSE_OFFSET 0
 #define MEDS_ZERO_SEED_OFFSET (MEDS_RESPONSE_OFFSET + MEDS_RESPONSE_BYTES)
