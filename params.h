@@ -16,9 +16,9 @@ typedef uint16_t Fq;
 #define Fq_bits 12
 #define Fq_bytes 2
 
-#define MEDS_m 14
-#define MEDS_n 14
-#define MEDS_k 14
+#define MEDS_m 22
+#define MEDS_n 22
+#define MEDS_k 22
 
 #define MEDS_s 4
 #define MEDS_t 1152
