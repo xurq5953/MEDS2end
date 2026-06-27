@@ -110,6 +110,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `field.c`, `field.h`: finite-field scalar arithmetic;
 - `matrixmod.c`, `matrixmod.h`: non-elimination matrix and vector operations plus legacy systematic-form helpers;
 - `matrixelim.c`, `matrixelim.h`: pivot-aware variable-time elimination, rank, inverse, kernels, and span tests;
+- `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -848,6 +849,119 @@ triform.c
 ```
 
 Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
+
+---
+
+# Current triform-derived-operators phase
+
+The current focused production phase is the standalone trilinear-form derived-operator layer.
+
+This phase may add or modify only:
+
+```text
+triform.h
+triform.c
+Makefile        only to add triform.o
+CMakeLists.txt  only to add triform.c
+AGENTS.md       only to document the phase constraints
+```
+
+This phase must not modify:
+
+```text
+util.c legacy phi()
+util.h legacy phi() declaration
+meds.c phi() call sites
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen, Sign, Verify mathematical flow
+public-key, secret-key, or signature formats
+params.h or api.h sizes
+challenge parsing or hashing inputs
+```
+
+The trilinear form is stored as `n` consecutive row-major square slices:
+
+```text
+M[slice * n * n + row * n + col]
+```
+
+The public `triform` interfaces currently have the precondition:
+
+```text
+1 <= n && n <= MEDS_n
+```
+
+because the pivot-aware elimination layer still uses `MEDS_n`-bounded internal arrays.
+
+`triform_matrix_at_w()` must compute:
+
+```text
+M(w) = sum_i w_i M_i
+```
+
+by calling `pmod_mat_linear_combination()`.
+
+`triform_phi_u()` must build columns:
+
+```text
+column i = M_i^T u
+```
+
+using `pmod_mat_transpose_vec_mul()` followed by `pmod_mat_set_col()`.
+
+`triform_phi_v()` must build columns:
+
+```text
+column i = M_i v
+```
+
+using `pmod_mat_vec_mul()` followed by `pmod_mat_set_col()`.
+
+`triform_eval()` must satisfy:
+
+```text
+phi_M(u,v,w) = sum_i w_i u^T M_i v
+             = u^T M(w) v
+             = v^T Phi_U(u) w
+             = u^T Phi_V(v) w
+```
+
+The corank-one wrappers must map directions exactly as follows and must not perform a separate rank computation before calling the kernel helper:
+
+```text
+Phi_U(u) -> pmod_mat_left_kernel_corank1_vartime()
+Phi_V(v) -> pmod_mat_right_kernel_corank1_vartime()
+M(w)     -> pmod_mat_left_kernel_corank1_vartime()
+```
+
+`triform_action_pullback()` is a new independent operator for:
+
+```text
+phi_out(x, y, z) = phi_M(Ax, By, Cz)
+out_j = A^T * (sum_i C[i,j] M_i) * B
+```
+
+It must read `C` by columns for output slices:
+
+```text
+coefficient for input slice i and output slice j is C[i * n + j]
+```
+
+It must not call or wrap legacy `phi()`, and legacy `phi()` must not call it.
+
+The public aliasing contract is:
+
+```text
+triform_matrix_at_w: out must not overlap M or w
+triform_phi_u:       phi_u must not overlap M or u
+triform_phi_v:       phi_v must not overlap M or v
+triform_action_pullback:
+                     out must not overlap M, A, B, or C
+```
+
+This phase does not implement `BuildUVW`, `DiagonalNormalize`, `CF`, or `Corank1Cal`, and it must not connect `triform_action_pullback()` to the current protocol.
 
 ---
 
