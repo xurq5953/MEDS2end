@@ -17,12 +17,30 @@
   } \
 } while (0)
 
+#define CHECK_CTX(cond, seed, n, round, label) do { \
+  if (!(cond)) { \
+    fprintf(stderr, \
+        "%s:%d: check failed: %s\n" \
+        "  label=%s seed=0x%08x n=%d round=%d\n", \
+        __FILE__, __LINE__, #cond, \
+        (label), (unsigned)(seed), (n), (round)); \
+    exit(1); \
+  } \
+} while (0)
+
 typedef struct {
   uint32_t state;
 } test_rng_t;
 
+static inline void test_rng_init(test_rng_t *rng, uint32_t seed)
+{
+  rng->state = (seed == 0) ? 0x9e3779b9u : seed;
+}
+
 static inline uint32_t test_rng_next(test_rng_t *rng)
 {
+  CHECK(rng->state != 0);
+
   uint32_t x = rng->state;
   x ^= x << 13;
   x ^= x >> 17;
@@ -42,9 +60,26 @@ static inline void fill_random(Fq *out, size_t count, test_rng_t *rng)
     out[i] = test_rng_fq(rng);
 }
 
+static inline size_t ref_triform_index(
+    int slice,
+    int row,
+    int col,
+    int n)
+{
+  return (size_t)slice * (size_t)n * (size_t)n
+       + (size_t)row * (size_t)n
+       + (size_t)col;
+}
+
 static inline void fill_zero(Fq *out, size_t count)
 {
   memset(out, 0, count * sizeof(*out));
+}
+
+static inline void fill_constant(Fq *out, size_t count, Fq value)
+{
+  for (size_t i = 0; i < count; i++)
+    out[i] = value;
 }
 
 static inline void fill_identity(Fq *out, int n)
@@ -55,6 +90,19 @@ static inline void fill_identity(Fq *out, int n)
     out[i * n + i] = 1;
 }
 
+static inline void fill_basis_vector(Fq *v, int index, int n)
+{
+  fill_zero(v, (size_t)n);
+  v[index] = 1;
+}
+
+static inline void fill_nonsymmetric_matrix(Fq *A, int n)
+{
+  for (int row = 0; row < n; row++)
+    for (int col = 0; col < n; col++)
+      A[row * n + col] = (Fq)((3 * row + 5 * col + 1) % MEDS_p);
+}
+
 static inline int vec_is_nonzero(const Fq *v, int n)
 {
   for (int i = 0; i < n; i++)
@@ -62,12 +110,6 @@ static inline int vec_is_nonzero(const Fq *v, int n)
       return 1;
 
   return 0;
-}
-
-static inline void expect_vec_equal(const Fq *a, const Fq *b, int n)
-{
-  for (int i = 0; i < n; i++)
-    CHECK(a[i] == b[i]);
 }
 
 static inline void expect_mat_equal(const Fq *a, const Fq *b, int n)
@@ -80,6 +122,48 @@ static inline void expect_triform_equal(const Fq *a, const Fq *b, int n)
 {
   for (size_t i = 0; i < triform_element_count(n); i++)
     CHECK(a[i] == b[i]);
+}
+
+static inline void expect_mat_equal_ctx(
+    const Fq *a,
+    const Fq *b,
+    int n,
+    uint32_t seed,
+    int round,
+    const char *label)
+{
+  for (int i = 0; i < n * n; i++)
+    CHECK_CTX(a[i] == b[i], seed, n, round, label);
+}
+
+static inline void expect_triform_equal_ctx(
+    const Fq *a,
+    const Fq *b,
+    int n,
+    uint32_t seed,
+    int round,
+    const char *label)
+{
+  for (size_t i = 0; i < triform_element_count(n); i++)
+    CHECK_CTX(a[i] == b[i], seed, n, round, label);
+}
+
+static inline void expect_zero_vec(const Fq *v, int n)
+{
+  for (int i = 0; i < n; i++)
+    CHECK(v[i] == 0);
+}
+
+static inline void expect_zero_mat(const Fq *A, int n)
+{
+  for (int i = 0; i < n * n; i++)
+    CHECK(A[i] == 0);
+}
+
+static inline void expect_zero_triform(const Fq *M, int n)
+{
+  for (size_t i = 0; i < triform_element_count(n); i++)
+    CHECK(M[i] == 0);
 }
 
 static inline void ref_mat_vec_mul(Fq *out, const Fq *A, const Fq *v, int n)
@@ -131,7 +215,7 @@ static inline void ref_matrix_at_w(Fq *out, const Fq *M, const Fq *w, int n)
 
       for (int slice = 0; slice < n; slice++)
       {
-        size_t idx = triform_index(slice, row, col, n);
+        size_t idx = ref_triform_index(slice, row, col, n);
         acc = GF_add(acc, GF_mul(w[slice], M[idx]));
       }
 
@@ -148,7 +232,7 @@ static inline void ref_phi_u(Fq *out, const Fq *M, const Fq *u, int n)
 
       for (int col = 0; col < n; col++)
       {
-        size_t idx = triform_index(slice, col, row, n);
+        size_t idx = ref_triform_index(slice, col, row, n);
         acc = GF_add(acc, GF_mul(M[idx], u[col]));
       }
 
@@ -165,7 +249,7 @@ static inline void ref_phi_v(Fq *out, const Fq *M, const Fq *v, int n)
 
       for (int col = 0; col < n; col++)
       {
-        size_t idx = triform_index(slice, row, col, n);
+        size_t idx = ref_triform_index(slice, row, col, n);
         acc = GF_add(acc, GF_mul(M[idx], v[col]));
       }
 
@@ -181,7 +265,7 @@ static inline Fq ref_eval(const Fq *M, const Fq *u, const Fq *v, const Fq *w, in
     for (int row = 0; row < n; row++)
       for (int col = 0; col < n; col++)
       {
-        Fq term = GF_mul(u[row], M[triform_index(slice, row, col, n)]);
+        Fq term = GF_mul(u[row], M[ref_triform_index(slice, row, col, n)]);
         term = GF_mul(term, v[col]);
         term = GF_mul(term, w[slice]);
         acc = GF_add(acc, term);
@@ -210,11 +294,6 @@ static inline Fq ref_mat_form_eval(const Fq *A, const Fq *left, const Fq *right,
   return ref_bilinear_eval(A, left, right, n);
 }
 
-static inline Fq ref_right_eval(const Fq *A, const Fq *left, const Fq *right, int n)
-{
-  return ref_bilinear_eval(A, left, right, n);
-}
-
 static inline void ref_action_pullback(
     Fq *out,
     const Fq *M,
@@ -234,12 +313,12 @@ static inline void ref_action_pullback(
             for (int b_col = 0; b_col < n; b_col++)
             {
               Fq term = GF_mul(A[a_row * n + row], C[in_slice * n + out_slice]);
-              term = GF_mul(term, M[triform_index(in_slice, a_row, b_col, n)]);
+              term = GF_mul(term, M[ref_triform_index(in_slice, a_row, b_col, n)]);
               term = GF_mul(term, B[b_col * n + col]);
               acc = GF_add(acc, term);
             }
 
-        out[triform_index(out_slice, row, col, n)] = acc;
+        out[ref_triform_index(out_slice, row, col, n)] = acc;
       }
 }
 
@@ -253,6 +332,18 @@ static inline void vec_scale(Fq *out, Fq scalar, const Fq *v, int n)
 {
   for (int i = 0; i < n; i++)
     out[i] = GF_mul(scalar, v[i]);
+}
+
+static inline void mat_add(Fq *out, const Fq *A, const Fq *B, int n)
+{
+  for (int i = 0; i < n * n; i++)
+    out[i] = GF_add(A[i], B[i]);
+}
+
+static inline void mat_scale(Fq *out, Fq scalar, const Fq *A, int n)
+{
+  for (int i = 0; i < n * n; i++)
+    out[i] = GF_mul(scalar, A[i]);
 }
 
 #endif
