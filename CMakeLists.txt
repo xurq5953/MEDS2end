@@ -32,6 +32,7 @@ set(COMMON_SOURCES
   matrixmod.c
   matrixelim.c
   triform.c
+  canonical.c
   bitstream.c
   randombytes.c
 )

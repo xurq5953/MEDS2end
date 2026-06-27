@@ -111,6 +111,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `matrixmod.c`, `matrixmod.h`: non-elimination matrix and vector operations plus legacy systematic-form helpers;
 - `matrixelim.c`, `matrixelim.h`: pivot-aware variable-time elimination, rank, inverse, kernels, and span tests;
 - `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
+- `canonical.c`, `canonical.h`: canonical-form layer entry points; currently only `BuildUVW`;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -852,23 +853,25 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current triform-derived-operators phase
+# Current BuildUVW phase
 
-The current focused production phase is the standalone trilinear-form derived-operator layer.
+The current focused production phase is `BuildUVW` in the canonical-form layer.
 
 This phase may add or modify only:
 
 ```text
-triform.h
-triform.c
-Makefile        only to add triform.o
-CMakeLists.txt  only to add triform.c
+canonical.h
+canonical.c
+Makefile        only to add canonical.o
+CMakeLists.txt  only to add canonical.c
 AGENTS.md       only to document the phase constraints
 ```
 
 This phase must not modify:
 
 ```text
+triform.c
+triform.h
 util.c legacy phi()
 util.h legacy phi() declaration
 meds.c phi() call sites
@@ -881,13 +884,45 @@ params.h or api.h sizes
 challenge parsing or hashing inputs
 ```
 
-The trilinear form is stored as `n` consecutive row-major square slices:
+The canonical module sits above the triform layer:
 
 ```text
-M[slice * n * n + row * n + col]
+field
+  -> matrixmod
+  -> matrixelim
+  -> triform
+  -> canonical
 ```
 
-The public `triform` interfaces currently have the precondition:
+This phase implements only:
+
+```c
+canonical_build_uvw_vartime()
+```
+
+It must not implement or declare:
+
+```text
+DiagonalNormalize
+CF
+Corank1Cal
+```
+
+`BuildUVW` starts from a nonzero representative `u1` and constructs:
+
+```text
+u_i -> v_i -> w_i -> u_{i+1}
+```
+
+with final outputs:
+
+```text
+U = [u_1, ..., u_n]
+V = [v_1, ..., v_n]
+W = [w_1, ..., w_n]
+```
+
+The public `BuildUVW` interface currently has the precondition:
 
 ```text
 1 <= n && n <= MEDS_n
@@ -895,73 +930,96 @@ The public `triform` interfaces currently have the precondition:
 
 because the pivot-aware elimination layer still uses `MEDS_n`-bounded internal arrays.
 
-`triform_matrix_at_w()` must compute:
+`U`, `V`, and `W` are ordinary row-major `n x n` matrices:
 
 ```text
-M(w) = sum_i w_i M_i
+A[row * n + col]
 ```
 
-by calling `pmod_mat_linear_combination()`.
+The vectors `u_i`, `v_i`, and `w_i` are written as columns using:
 
-`triform_phi_u()` must build columns:
+```c
+pmod_mat_set_col()
+```
+
+The span helpers must not receive row-major `U`, `V`, or `W` as a basis. They require packed vector-list layout:
 
 ```text
-column i = M_i^T u
+list[0 * n ... 1 * n - 1] = vector 0
+list[1 * n ... 2 * n - 1] = vector 1
 ```
 
-using `pmod_mat_transpose_vec_mul()` followed by `pmod_mat_set_col()`.
+Therefore `canonical.c` must maintain local packed lists such as:
 
-`triform_phi_v()` must build columns:
+```c
+Fq LU[n * n];
+Fq LV[n * n];
+Fq LW[n * n];
+```
+
+and only convert them to row-major output matrices after all checks pass.
+
+`BuildUVW` must reuse the combined corank-one triform wrappers:
 
 ```text
-column i = M_i v
+triform_phi_u_lker_corank1_vartime()
+triform_phi_v_rker_corank1_vartime()
+triform_matrix_at_w_lker_corank1_vartime()
 ```
 
-using `pmod_mat_vec_mul()` followed by `pmod_mat_set_col()`.
+Do not separately compute rank and then kernel for the same derived matrix in production. Cache `next_v` after checking `Phi_U(next_u)` so the next iteration does not repeat the same elimination.
 
-`triform_eval()` must satisfy:
+`BuildUVW` must use:
 
 ```text
-phi_M(u,v,w) = sum_i w_i u^T M_i v
-             = u^T M(w) v
-             = v^T Phi_U(u) w
-             = u^T Phi_V(v) w
+pmod_vec_extends_independent_set_vartime()
+pmod_mat_is_invertible_vartime()
 ```
 
-The corank-one wrappers must map directions exactly as follows and must not perform a separate rank computation before calling the kernel helper:
+for independence and final invertibility checks. Do not duplicate Gaussian elimination in `canonical.c`.
+
+Failure semantics:
 
 ```text
-Phi_U(u) -> pmod_mat_left_kernel_corank1_vartime()
-Phi_V(v) -> pmod_mat_right_kernel_corank1_vartime()
-M(w)     -> pmod_mat_left_kernel_corank1_vartime()
+0   success
+-1  invalid input or path construction failure
 ```
 
-`triform_action_pullback()` is a new independent operator for:
+Invalid dimensions and null pointers must be rejected before any VLA declarations. Zero `u1` must be rejected. On failure, caller-provided `U`, `V`, and `W` must remain unchanged.
+
+The function is variable-time and must keep the `_vartime` suffix.
+
+The first output column of `U` must preserve the exact representative `u1`; do not projectively normalize it in this phase.
+
+Do not connect `BuildUVW` to:
 
 ```text
-phi_out(x, y, z) = phi_M(Ax, By, Cz)
-out_j = A^T * (sum_i C[i,j] M_i) * B
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen
+Sign
+Verify
 ```
 
-It must read `C` by columns for output slices:
+Tests for this phase belong only on a dedicated test branch under:
 
 ```text
-coefficient for input slice i and output slice j is C[i * n + j]
+tests/builduvw/**
 ```
 
-It must not call or wrap legacy `phi()`, and legacy `phi()` must not call it.
+and must not add test hooks or `#ifdef TESTING` to production code.
 
-The public aliasing contract is:
+The triform layer remains governed by its existing contracts:
 
 ```text
-triform_matrix_at_w: out must not overlap M or w
-triform_phi_u:       phi_u must not overlap M or u
-triform_phi_v:       phi_v must not overlap M or v
-triform_action_pullback:
-                     out must not overlap M, A, B, or C
+M[slice * n * n + row * n + col]
+Phi_U(u) -> left kernel
+Phi_V(v) -> right kernel
+M(w)     -> left kernel
 ```
 
-This phase does not implement `BuildUVW`, `DiagonalNormalize`, `CF`, or `Corank1Cal`, and it must not connect `triform_action_pullback()` to the current protocol.
+Do not modify the triform implementation during this phase.
 
 ---
 
