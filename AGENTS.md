@@ -111,7 +111,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `matrixmod.c`, `matrixmod.h`: non-elimination matrix and vector operations plus legacy systematic-form helpers;
 - `matrixelim.c`, `matrixelim.h`: pivot-aware variable-time elimination, rank, inverse, kernels, and span tests;
 - `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
-- `canonical.c`, `canonical.h`: canonical-form layer entry points; currently only `BuildUVW`;
+- `canonical.c`, `canonical.h`: canonical-form layer entry points; currently `BuildUVW` and `DiagonalNormalize`;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -854,9 +854,130 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current BuildUVW phase
+# Current DiagonalNormalize phase
 
-The current focused production phase is `BuildUVW` in the canonical-form layer.
+The current focused production phase is `DiagonalNormalize` in the canonical-form layer.
+
+This phase may add or modify only:
+
+```text
+canonical.h
+canonical.c
+AGENTS.md
+```
+
+This phase must not modify:
+
+```text
+triform.c
+triform.h
+util.c legacy phi()
+util.h legacy phi() declaration
+meds.c phi() call sites
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen, Sign, Verify mathematical flow
+public-key, secret-key, or signature formats
+params.h or api.h sizes
+challenge parsing or hashing inputs
+Makefile
+CMakeLists.txt
+```
+
+The phase implements only:
+
+```c
+canonical_diagonal_normalize_vartime()
+```
+
+It must not implement or declare:
+
+```text
+CF
+Corank1Cal
+```
+
+`DiagonalNormalize` computes:
+
+```text
+transformed_k = U^T * M(w_k) * V
+out_k         = h_k * diag(f) * transformed_k * diag(g)
+```
+
+where `w_k` is column `k` of `W`.
+
+The public interface has the precondition:
+
+```text
+5 <= n && n <= MEDS_n
+```
+
+because the algorithm uses `M5`, `g3`, and `h5`. Invalid dimensions and null pointers must be rejected before any VLA declarations.
+
+The implementation must reuse:
+
+```text
+triform_action_pullback()
+GF_batch_inv()
+pmod_mat_diag_scale()
+```
+
+Do not construct dense diagonal matrices. Do not call legacy `phi()`.
+
+The required 0-based anchor positions are:
+
+```text
+a_i: slice 0, row i - 1, col 1      for 3 <= i <= n
+b_j: slice 0, row 0,     col j - 1  for 3 <= j <= n
+c_k: slice k - 1, row 0, col 1      for 3 <= k <= n
+d1:  slice 0, row 0, col 1
+d2:  slice 4, row 1, col 2
+d3:  slice 1, row 0, col 2
+d4:  slice 1, row 1, col 0
+```
+
+Any required anchor equal to zero must make the function fail.
+
+Failure semantics:
+
+```text
+0   success
+-1  invalid input or required anchor is zero
+```
+
+On failure, caller-provided `out` must remain unchanged.
+
+The public contract does not support implicit aliasing:
+
+```text
+out must not overlap M, U, V, or W
+```
+
+Do not connect `DiagonalNormalize` to:
+
+```text
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen
+Sign
+Verify
+```
+
+Tests for this phase belong only on a dedicated test branch under:
+
+```text
+tests/diagonal_normalize/**
+```
+
+and must not add test hooks or `#ifdef TESTING` to production code.
+
+---
+
+# BuildUVW implementation constraints
+
+`BuildUVW` is implemented in the canonical-form layer.
 
 This phase may add or modify only:
 

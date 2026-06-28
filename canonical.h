@@ -36,4 +36,33 @@ int canonical_build_uvw_vartime(
     const Fq *u1,
     int n);
 
+/*
+ * Compute the TRINE diagonal normalization:
+ *
+ *   transformed_k = U^T * M(w_k) * V
+ *   out_k         = h_k * diag(f) * transformed_k * diag(g)
+ *
+ * Return:
+ *    0  success
+ *   -1  invalid input or a required anchor is zero
+ *
+ * Preconditions:
+ *   5 <= n && n <= MEDS_n
+ *   M contains n^3 canonical field elements
+ *   U, V, W are row-major invertible n x n matrices
+ *   out provides n^3 writable field elements
+ *   out does not overlap M, U, V, or W
+ *
+ * The function is variable-time.
+ *
+ * On failure, out is left unchanged.
+ */
+int canonical_diagonal_normalize_vartime(
+    Fq *out,
+    const Fq *M,
+    const Fq *U,
+    const Fq *V,
+    const Fq *W,
+    int n);
+
 #endif
