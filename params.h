@@ -13,6 +13,7 @@
 
 #define MEDS_p 4093
 typedef uint16_t Fq;
+typedef uint16_t trine_challenge_t;
 #define Fq_bits 12
 #define Fq_bytes 2
 
@@ -25,6 +26,18 @@ typedef uint16_t Fq;
 #define MEDS_FORM_COUNT (MEDS_X + 1)
 #define MEDS_NONBASE_COUNT MEDS_X
 #define MEDS_BASE_FORM_INDEX MEDS_X
+
+#if MEDS_n < 5
+#error "TRINE CF requires MEDS_n >= 5"
+#endif
+
+#if MEDS_K > MEDS_r
+#error "MEDS_K must not exceed MEDS_r"
+#endif
+
+#if MEDS_X < 2 || MEDS_X > 256
+#error "TRINE requires 2 <= MEDS_X <= 256"
+#endif
 
 #define MEDS_t_mask 0x000007FF
 #define MEDS_t_bytes 2

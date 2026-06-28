@@ -77,6 +77,95 @@ void rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
   }
 }
 
+static unsigned bit_length_u32(uint32_t value)
+{
+  unsigned bits = 0;
+
+  do
+  {
+    bits++;
+    value >>= 1;
+  }
+  while (value != 0);
+
+  return bits;
+}
+
+static int sample_masked_le(
+    uint32_t *out,
+    keccak_state *shake,
+    unsigned bit_count)
+{
+  if (out == NULL || shake == NULL || bit_count == 0 || bit_count > 32)
+    return -1;
+
+  const size_t byte_count = MEDS_CEIL_DIV((size_t)bit_count, 8u);
+  uint8_t buf[4] = {0};
+  uint32_t value = 0;
+
+  shake256_squeeze(buf, byte_count, shake);
+
+  for (size_t i = 0; i < byte_count; i++)
+    value |= (uint32_t)buf[i] << (8u * i);
+
+  if (bit_count < 32)
+    value &= ((uint32_t)1u << bit_count) - 1u;
+
+  *out = value;
+  return 0;
+}
+
+int trine_parse_hash(
+    const uint8_t *digest,
+    size_t digest_len,
+    trine_challenge_t *out,
+    size_t out_len)
+{
+  if (digest == NULL || out == NULL)
+    return -1;
+
+  if (digest_len != MEDS_digest_bytes || out_len != MEDS_r)
+    return -1;
+
+  trine_challenge_t parsed[MEDS_r];
+  uint16_t raw[MEDS_r] = {0};
+  keccak_state shake;
+  const unsigned position_bits = bit_length_u32((uint32_t)(MEDS_r - 1));
+  const unsigned value_bits = bit_length_u32((uint32_t)MEDS_X);
+
+  shake256_init(&shake);
+  shake256_absorb(&shake, digest, digest_len);
+  shake256_finalize(&shake);
+
+  for (int selected = 0; selected < MEDS_K; selected++)
+  {
+    uint32_t position = 0;
+    uint32_t value = 0;
+
+    do
+    {
+      if (sample_masked_le(&position, &shake, position_bits) != 0)
+        return -1;
+    }
+    while (position >= (uint32_t)MEDS_r || raw[position] != 0);
+
+    do
+    {
+      if (sample_masked_le(&value, &shake, value_bits) != 0)
+        return -1;
+    }
+    while (value == 0 || value > (uint32_t)MEDS_X);
+
+    raw[position] = (uint16_t)value;
+  }
+
+  for (int i = 0; i < MEDS_r; i++)
+    parsed[i] = (trine_challenge_t)(MEDS_X - raw[i]);
+
+  memcpy(out, parsed, sizeof(parsed));
+  return 0;
+}
+
 int parse_hash(const uint8_t *digest, int digest_len, uint8_t *h, int len_h)
 {
   if (len_h < MEDS_r)
