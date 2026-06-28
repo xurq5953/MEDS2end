@@ -18,6 +18,7 @@ endif
 CFLAGS += -I$(OBJDIR) -INIST
 
 EXES = bench PQCgenKAT_sign
+SPEED_EXE = $(OBJDIR)/test_speed
 
 ifneq ($(wildcard test_meds2end_seedless.c),)
 EXES += test_meds2end_seedless
@@ -25,7 +26,7 @@ endif
 
 TARGETS := ${EXES:%=$(OBJDIR)/%}
 
-.PHONY: default clean KAT BENCH
+.PHONY: default clean KAT BENCH SPEED
 
 default: $(EXES)
 
@@ -47,11 +48,17 @@ $(BUILDOBJ) : $(OBJDIR)/%.o: %.c $(HEADERS) | $(OBJDIR)
 $(TARGETS) : $(OBJDIR)/%: %.c $(BUILDOBJ)
 	$(CC) $(@F).c $(BUILDOBJ) $(CFLAGS) $(LIBS) -o $@
 
+$(SPEED_EXE): test_speed/test_speed.c test_speed/cpucycles.c test_speed/speed_print.c $(BUILDOBJ)
+	$(CC) test_speed/test_speed.c test_speed/cpucycles.c test_speed/speed_print.c $(BUILDOBJ) $(CFLAGS) -Itest_speed $(LIBS) -o $@
+
 KAT: PQCgenKAT_sign
 	$(OBJDIR)/PQCgenKAT_sign
 
 BENCH: bench
 	$(OBJDIR)/bench
+
+SPEED: $(SPEED_EXE)
+	$(SPEED_EXE)
 
 clean:
 	rm -rf build/ debug/ PQCsignKAT_*

@@ -117,6 +117,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
 - `randombytes.c`, `randombytes.h`: randomness interface;
 - `bench.c`: benchmark target;
+- `test_speed/`: cycle-count speed tests for protocol and core operators;
 - `PQCgenKAT_sign.c`: KAT generator;
 - `Makefile`;
 - `CMakeLists.txt`.
@@ -1344,10 +1345,19 @@ The production branch should retain:
 
 - production source code;
 - benchmark code;
+- speed test code under `test_speed/`;
 - KAT generator;
 - essential build files.
 
-Do not permanently add large functional, randomized, sanitizer, or stress-test suites to `master` unless explicitly requested.
+`master` should contain only KAT and speed/benchmark test entry points:
+
+```text
+PQCgenKAT_sign.c
+bench.c
+test_speed/**
+```
+
+Do not permanently add large functional, randomized, sanitizer, property, or stress-test suites to `master` unless explicitly requested.
 
 ## Test branch
 
@@ -1366,6 +1376,17 @@ tests/linear_algebra/
 ```
 
 Test-only code should be separated from production source code.
+
+Examples of code that belongs on test branches rather than `master`:
+
+```text
+tests/triform/**
+tests/builduvw/**
+functional correctness suites
+randomized regression tests
+ASan/UBSan harnesses
+property and differential tests
+```
 
 ## Fix branch
 

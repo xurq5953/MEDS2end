@@ -61,6 +61,24 @@ endforeach()
 
 add_custom_target(default ALL DEPENDS bench PQCgenKAT_sign)
 
+add_executable(test_speed
+  test_speed/test_speed.c
+  test_speed/cpucycles.c
+  test_speed/speed_print.c
+  ${COMMON_SOURCES}
+)
+target_compile_options(test_speed PRIVATE ${COMPILE_OPTIONS})
+target_compile_definitions(test_speed PRIVATE ${COMPILE_DEFINITIONS})
+target_include_directories(test_speed PRIVATE
+  "${OBJDIR_PATH}"
+  "${CMAKE_SOURCE_DIR}/NIST"
+  "${CMAKE_SOURCE_DIR}/test_speed"
+)
+target_link_libraries(test_speed PRIVATE ${LIBS})
+set_target_properties(test_speed PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${OBJDIR_PATH}"
+)
+
 add_custom_target(run_kat
   COMMAND "$<TARGET_FILE:PQCgenKAT_sign>"
   DEPENDS PQCgenKAT_sign
@@ -70,6 +88,12 @@ add_custom_target(run_kat
 add_custom_target(run_bench
   COMMAND "$<TARGET_FILE:bench>"
   DEPENDS bench
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+add_custom_target(run_speed
+  COMMAND "$<TARGET_FILE:test_speed>"
+  DEPENDS test_speed
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
