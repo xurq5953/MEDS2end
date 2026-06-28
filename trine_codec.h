@@ -48,11 +48,11 @@ int trine_codec_decode_triform_checked(
 int trine_codec_encode_public_key(
     uint8_t *out_pk,
     size_t out_len,
-    const uint8_t public_seed[MEDS_pub_seed_bytes],
+    const uint8_t public_seed[TRINE_public_seed_bytes],
     const Fq *nonbase_forms);
 
 int trine_codec_decode_public_key_checked(
-    uint8_t out_public_seed[MEDS_pub_seed_bytes],
+    uint8_t out_public_seed[TRINE_public_seed_bytes],
     Fq *out_nonbase_forms,
     const uint8_t *pk,
     size_t pk_len);
@@ -60,10 +60,10 @@ int trine_codec_decode_public_key_checked(
 int trine_codec_encode_secret_key(
     uint8_t *out_sk,
     size_t out_len,
-    const uint8_t secret_seed[MEDS_sec_seed_bytes]);
+    const uint8_t secret_seed[TRINE_secret_seed_bytes]);
 
 int trine_codec_decode_secret_key(
-    uint8_t out_secret_seed[MEDS_sec_seed_bytes],
+    uint8_t out_secret_seed[TRINE_secret_seed_bytes],
     const uint8_t *sk,
     size_t sk_len);
 
@@ -72,14 +72,14 @@ int trine_codec_encode_signature(
     size_t out_len,
     const Fq *responses,
     const uint8_t *base_seeds,
-    const uint8_t digest[MEDS_digest_bytes],
-    const uint8_t salt[MEDS_salt_bytes]);
+    const uint8_t digest[TRINE_digest_bytes],
+    const uint8_t salt[TRINE_salt_bytes]);
 
 int trine_codec_decode_signature_checked(
     Fq *out_responses,
     uint8_t *out_base_seeds,
-    uint8_t out_digest[MEDS_digest_bytes],
-    uint8_t out_salt[MEDS_salt_bytes],
+    uint8_t out_digest[TRINE_digest_bytes],
+    uint8_t out_salt[TRINE_salt_bytes],
     const uint8_t *sig,
     size_t sig_len);
 

@@ -74,16 +74,16 @@ m = n = l
 The current C code may still use historical MEDS macro names:
 
 ```text
-MEDS_n
-MEDS_n
-MEDS_n
+TRINE_n
+TRINE_n
+TRINE_n
 ```
 
 For the current equal-dimension parameter set, these are expected to satisfy:
 
 ```text
-MEDS_n == MEDS_n
-MEDS_n == MEDS_n
+TRINE_n == TRINE_n
+TRINE_n == TRINE_n
 ```
 
 Use macros instead of hard-coded numeric dimensions.
@@ -159,12 +159,12 @@ GF_batch_inv()
 Every ordinary field element must be represented canonically:
 
 ```text
-0 <= a < MEDS_p
+0 <= a < TRINE_q
 ```
 
 All public field helpers assume canonical inputs unless their interface explicitly states otherwise.
 
-Do not pass unchecked serialized values directly into arithmetic. Decoders must reject values greater than or equal to `MEDS_p`.
+Do not pass unchecked serialized values directly into arithmetic. Decoders must reject values greater than or equal to `TRINE_q`.
 
 ## Arithmetic rules
 
@@ -181,8 +181,8 @@ Fq e = GF_mul(a, b);
 Avoid open-coded expressions such as:
 
 ```c
-(a + b) % MEDS_p
-(a - b + MEDS_p) % MEDS_p
+(a + b) % TRINE_q
+(a - b + TRINE_q) % TRINE_q
 ```
 
 inside new matrix algorithms unless a measured optimization has been independently verified.
@@ -382,18 +382,18 @@ New Corank/CF code should not use the rectangular helper when all operands are s
 
 ## Accumulation bounds
 
-Several matrix helpers accumulate products in `uint64_t` and reduce modulo `MEDS_p` after a dot product or elementwise linear combination.
+Several matrix helpers accumulate products in `uint64_t` and reduce modulo `TRINE_q` after a dot product or elementwise linear combination.
 
 Before increasing dimensions or the modulus, verify bounds such as:
 
 ```text
-n * (MEDS_p - 1)^2 <= UINT64_MAX
+n * (TRINE_q - 1)^2 <= UINT64_MAX
 ```
 
 and, for a linear combination of `count` matrices:
 
 ```text
-count * (MEDS_p - 1)^2 <= UINT64_MAX
+count * (TRINE_q - 1)^2 <= UINT64_MAX
 ```
 
 Do not change parameters without reviewing all delayed-reduction bounds.
@@ -901,19 +901,19 @@ parameter values n/q/r/K/X
 This phase activates the TRINE API sizes:
 
 ```text
-MEDS_PK_BYTES  = TRINE_PK_BYTES
-MEDS_SK_BYTES  = TRINE_SK_BYTES
-MEDS_SIG_BYTES = TRINE_SIG_BYTES
+TRINE_PK_BYTES  = TRINE_PK_BYTES
+TRINE_SK_BYTES  = TRINE_SK_BYTES
+TRINE_SIG_BYTES = TRINE_SIG_BYTES
 ```
 
 `CRYPTO_ALGNAME` must remain unchanged.
 
-`MEDS_X` means the number of non-base public forms, and the base form index is `MEDS_X`:
+`TRINE_X` means the number of non-base public forms, and the base form index is `TRINE_X`:
 
 ```text
-MEDS_NONBASE_COUNT   = MEDS_X
-MEDS_FORM_COUNT      = MEDS_X + 1
-MEDS_BASE_FORM_INDEX = MEDS_X
+TRINE_NONBASE_COUNT   = TRINE_X
+TRINE_FORM_COUNT      = TRINE_X + 1
+TRINE_BASE_FORM_INDEX = TRINE_X
 ```
 
 KeyGen must implement:
@@ -1029,7 +1029,7 @@ master secret seed + role + index -> invertible matrix and inverse
 Codec decoders must reject:
 
 ```text
-field values >= MEDS_p
+field values >= TRINE_q
 nonzero unused padding bits
 wrong input lengths
 ```
@@ -1110,7 +1110,7 @@ Do not copy or duplicate the internals of `BuildUVW` or `DiagonalNormalize` in `
 The public interface has the precondition:
 
 ```text
-5 <= n && n <= MEDS_n
+5 <= n && n <= TRINE_n
 ```
 
 because complete CF calls `DiagonalNormalize`, which uses `M5`, `g3`, and `h5`.
@@ -1249,10 +1249,10 @@ W = [w_1, ..., w_n]
 The public `BuildUVW` interface currently has the precondition:
 
 ```text
-1 <= n && n <= MEDS_n
+1 <= n && n <= TRINE_n
 ```
 
-because the pivot-aware elimination layer still uses `MEDS_n`-bounded internal arrays.
+because the pivot-aware elimination layer still uses `TRINE_n`-bounded internal arrays.
 
 `U`, `V`, and `W` are ordinary row-major `n x n` matrices:
 
@@ -1492,7 +1492,7 @@ Every writer and reader must agree on:
 Decoded field elements must satisfy:
 
 ```text
-value < MEDS_p
+value < TRINE_q
 ```
 
 Reject non-canonical encodings.

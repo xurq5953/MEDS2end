@@ -20,7 +20,7 @@ long long cpucycles(void)
 
 int main(int argc, char *argv[])
 {
-  printf("name: %s\n", MEDS_name);
+  printf("name: %s\n", CRYPTO_ALGNAME);
 
   long long keygen_time = 0;
   long long sign_time = 0;
@@ -40,17 +40,17 @@ int main(int argc, char *argv[])
   unsigned long long sig_len = sizeof(sig);
 
 
-  printf("m:    %i\n", MEDS_n);
-  printf("n:    %i\n", MEDS_n);
-  printf("q:    %i\n", MEDS_p);
-  printf("k:    %i\n", MEDS_n);
-  printf("s:    %i\n", MEDS_X);
-  printf("t:    %i\n", MEDS_r);
-  printf("w:    %i\n", MEDS_K);
+  printf("m:    %i\n", TRINE_n);
+  printf("n:    %i\n", TRINE_n);
+  printf("q:    %i\n", TRINE_q);
+  printf("k:    %i\n", TRINE_n);
+  printf("s:    %i\n", TRINE_X);
+  printf("t:    %i\n", TRINE_r);
+  printf("w:    %i\n", TRINE_K);
 
-  printf("pk:   %i bytes\n", MEDS_PK_BYTES);
+  printf("pk:   %i bytes\n", TRINE_PK_BYTES);
 
-  printf("sig:  %i bytes\n", MEDS_SIG_BYTES);
+  printf("sig:  %i bytes\n", TRINE_SIG_BYTES);
 
 
   for (int round = 0; round < rounds; round++)

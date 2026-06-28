@@ -10,7 +10,7 @@
  *   M[slice * n * n + row * n + col]
  *
  * Preconditions:
- *   1 <= n && n <= MEDS_n
+ *   1 <= n && n <= TRINE_n
  *   all pointers refer to sufficiently large valid buffers
  *   all field elements are canonical
  */

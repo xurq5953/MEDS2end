@@ -28,7 +28,7 @@ int corank1_cal_vartime(
       shake == NULL)
     return -1;
 
-  if (n < 1 || n > MEDS_n)
+  if (n < 1 || n > TRINE_n)
     return -1;
 
   Fq candidate[n];

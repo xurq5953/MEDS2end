@@ -16,7 +16,7 @@
  *   -1  invalid input or path construction failure
  *
  * Preconditions:
- *   1 <= n && n <= MEDS_n
+ *   1 <= n && n <= TRINE_n
  *   M contains n^3 canonical field elements
  *   u1 contains n canonical field elements
  *   U, V, W each provide n^2 writable field elements
@@ -47,7 +47,7 @@ int canonical_build_uvw_vartime(
  *   -1  invalid input or a required anchor is zero
  *
  * Preconditions:
- *   5 <= n && n <= MEDS_n
+ *   5 <= n && n <= TRINE_n
  *   M contains n^3 canonical field elements
  *   U, V, W are row-major invertible n x n matrices
  *   out provides n^3 writable field elements
@@ -78,7 +78,7 @@ int canonical_diagonal_normalize_vartime(
  *       DiagonalNormalize failure
  *
  * Preconditions:
- *   5 <= n && n <= MEDS_n
+ *   5 <= n && n <= TRINE_n
  *   M contains n^3 canonical field elements
  *   u1 contains n canonical field elements
  *   u1 is nonzero

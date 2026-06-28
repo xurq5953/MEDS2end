@@ -31,16 +31,16 @@ typedef struct {
   Fq a;
   Fq b;
   Fq c;
-  Fq vec[MEDS_n];
-  Fq vec2[MEDS_n];
-  Fq mat[MEDS_n * MEDS_n];
-  Fq mat2[MEDS_n * MEDS_n];
-  Fq mat3[MEDS_n * MEDS_n];
-  Fq form[MEDS_n * MEDS_n * MEDS_n];
-  Fq form2[MEDS_n * MEDS_n * MEDS_n];
-  Fq U[MEDS_n * MEDS_n];
-  Fq V[MEDS_n * MEDS_n];
-  Fq W[MEDS_n * MEDS_n];
+  Fq vec[TRINE_n];
+  Fq vec2[TRINE_n];
+  Fq mat[TRINE_n * TRINE_n];
+  Fq mat2[TRINE_n * TRINE_n];
+  Fq mat3[TRINE_n * TRINE_n];
+  Fq form[TRINE_n * TRINE_n * TRINE_n];
+  Fq form2[TRINE_n * TRINE_n * TRINE_n];
+  Fq U[TRINE_n * TRINE_n];
+  Fq V[TRINE_n * TRINE_n];
+  Fq W[TRINE_n * TRINE_n];
   unsigned char pk[CRYPTO_PUBLICKEYBYTES];
   unsigned char sk[CRYPTO_SECRETKEYBYTES];
   unsigned char sm[CRYPTO_BYTES + 32];
@@ -67,7 +67,7 @@ static uint32_t rng_next(speed_rng_t *rng)
 
 static Fq rng_fq(speed_rng_t *rng)
 {
-  return (Fq)(rng_next(rng) % MEDS_p);
+  return (Fq)(rng_next(rng) % TRINE_q);
 }
 
 static void fill_random_fq(Fq *out, size_t count, speed_rng_t *rng)
@@ -107,9 +107,9 @@ static void force_coordinate_path_constraints(Fq *M, int n)
 
 static void make_builduvw_fixture(Fq *M, Fq *u1, int n)
 {
-  Fq U[MEDS_n * MEDS_n];
-  Fq V[MEDS_n * MEDS_n];
-  Fq W[MEDS_n * MEDS_n];
+  Fq U[TRINE_n * TRINE_n];
+  Fq V[TRINE_n * TRINE_n];
+  Fq W[TRINE_n * TRINE_n];
 
   for (uint32_t attempt = 0; attempt < 1024u; attempt++)
   {
@@ -201,67 +201,67 @@ static void bench_gf_inv(void *arg)
 static void bench_mat_mul(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  pmod_mat_mul(ctx->mat3, ctx->mat, ctx->mat2, MEDS_n);
+  pmod_mat_mul(ctx->mat3, ctx->mat, ctx->mat2, TRINE_n);
 }
 
 static void bench_mat_vec_mul(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  pmod_mat_vec_mul(ctx->vec2, ctx->mat, ctx->vec, MEDS_n);
+  pmod_mat_vec_mul(ctx->vec2, ctx->mat, ctx->vec, TRINE_n);
 }
 
 static void bench_mat_rank(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  ctx->c = (Fq)pmod_mat_rank_vartime(ctx->mat, MEDS_n);
+  ctx->c = (Fq)pmod_mat_rank_vartime(ctx->mat, TRINE_n);
 }
 
 static void bench_mat_inv(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  (void)pmod_mat_inv_vartime(ctx->mat3, ctx->mat, MEDS_n);
+  (void)pmod_mat_inv_vartime(ctx->mat3, ctx->mat, TRINE_n);
 }
 
 static void bench_right_kernel(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  (void)pmod_mat_right_kernel_corank1_vartime(ctx->vec2, ctx->mat2, MEDS_n);
+  (void)pmod_mat_right_kernel_corank1_vartime(ctx->vec2, ctx->mat2, TRINE_n);
 }
 
 static void bench_triform_matrix_at_w(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  triform_matrix_at_w(ctx->mat3, ctx->form, ctx->vec, MEDS_n);
+  triform_matrix_at_w(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
 }
 
 static void bench_triform_phi_u(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  triform_phi_u(ctx->mat3, ctx->form, ctx->vec, MEDS_n);
+  triform_phi_u(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
 }
 
 static void bench_triform_phi_v(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  triform_phi_v(ctx->mat3, ctx->form, ctx->vec, MEDS_n);
+  triform_phi_v(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
 }
 
 static void bench_triform_eval(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  ctx->c = triform_eval(ctx->form, ctx->vec, ctx->vec2, ctx->vec, MEDS_n);
+  ctx->c = triform_eval(ctx->form, ctx->vec, ctx->vec2, ctx->vec, TRINE_n);
 }
 
 static void bench_triform_action_pullback(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  triform_action_pullback(ctx->form2, ctx->form, ctx->mat, ctx->mat2, ctx->mat3, MEDS_n);
+  triform_action_pullback(ctx->form2, ctx->form, ctx->mat, ctx->mat2, ctx->mat3, TRINE_n);
 }
 
 static void bench_builduvw(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  (void)canonical_build_uvw_vartime(ctx->U, ctx->V, ctx->W, ctx->form, ctx->vec, MEDS_n);
+  (void)canonical_build_uvw_vartime(ctx->U, ctx->V, ctx->W, ctx->form, ctx->vec, TRINE_n);
 }
 
 static void init_context(speed_ctx_t *ctx)
@@ -272,14 +272,14 @@ static void init_context(speed_ctx_t *ctx)
   ctx->a = 7;
   ctx->b = 11;
 
-  fill_random_fq(ctx->vec, MEDS_n, &rng);
-  fill_random_fq(ctx->vec2, MEDS_n, &rng);
-  fill_random_fq(ctx->form, (size_t)MEDS_n * MEDS_n * MEDS_n, &rng);
-  make_invertible_matrix(ctx->mat, MEDS_n);
-  make_invertible_matrix(ctx->mat2, MEDS_n);
-  make_invertible_matrix(ctx->mat3, MEDS_n);
-  make_corank_one_matrix(ctx->mat2, MEDS_n);
-  make_builduvw_fixture(ctx->form, ctx->vec, MEDS_n);
+  fill_random_fq(ctx->vec, TRINE_n, &rng);
+  fill_random_fq(ctx->vec2, TRINE_n, &rng);
+  fill_random_fq(ctx->form, (size_t)TRINE_n * TRINE_n * TRINE_n, &rng);
+  make_invertible_matrix(ctx->mat, TRINE_n);
+  make_invertible_matrix(ctx->mat2, TRINE_n);
+  make_invertible_matrix(ctx->mat3, TRINE_n);
+  make_corank_one_matrix(ctx->mat2, TRINE_n);
+  make_builduvw_fixture(ctx->form, ctx->vec, TRINE_n);
 
   for (size_t i = 0; i < sizeof(ctx->msg); i++)
     ctx->msg[i] = (unsigned char)i;
@@ -329,12 +329,12 @@ int main(int argc, char **argv)
 
   init_context(&ctx);
 
-  printf("name: %s\n", MEDS_name);
-  printf("n: %d\n", MEDS_n);
-  printf("q: %d\n", MEDS_p);
-  printf("pk: %d bytes\n", MEDS_PK_BYTES);
-  printf("sk: %d bytes\n", MEDS_SK_BYTES);
-  printf("sig: %d bytes\n", MEDS_SIG_BYTES);
+  printf("name: %s\n", CRYPTO_ALGNAME);
+  printf("n: %d\n", TRINE_n);
+  printf("q: %d\n", TRINE_q);
+  printf("pk: %d bytes\n", TRINE_PK_BYTES);
+  printf("sk: %d bytes\n", TRINE_SK_BYTES);
+  printf("sig: %d bytes\n", TRINE_SIG_BYTES);
   printf("rounds: core=%d protocol=%d\n\n", speed_rounds, protocol_rounds);
 
   time_function("crypto_sign_keypair", bench_keypair, &ctx, protocol_rounds);

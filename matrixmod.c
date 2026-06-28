@@ -77,7 +77,7 @@ void pmod_mat_mul(
       for (int k = 0; k < n; k++)
         acc += (uint64_t)A[r * n + k] * B[k * n + c];
 
-      tmp[r * n + c] = (Fq)(acc % MEDS_p);
+      tmp[r * n + c] = (Fq)(acc % TRINE_q);
     }
 
   memcpy(C, tmp, sizeof(tmp));
@@ -107,7 +107,7 @@ void pmod_mat_mul_rect(
       for (int i = 0; i < A_c; i++)
         val = (val + (uint64_t)pmod_mat_entry(A, A_r, A_c, r, i) * (uint64_t)pmod_mat_entry(B, B_r, B_c, i, c));
 
-      tmp[r*C_c + c] = val % MEDS_p;
+      tmp[r*C_c + c] = val % TRINE_q;
     }
 
   for (int c = 0; c < C_c; c++)
@@ -130,7 +130,7 @@ void pmod_mat_vec_mul(
     for (int c = 0; c < n; c++)
       acc += (uint64_t)A[r * n + c] * v[c];
 
-    tmp[r] = (Fq)(acc % MEDS_p);
+    tmp[r] = (Fq)(acc % TRINE_q);
   }
 
   memcpy(out, tmp, sizeof(tmp));
@@ -151,7 +151,7 @@ void pmod_mat_transpose_vec_mul(
     for (int r = 0; r < n; r++)
       acc += (uint64_t)A[r * n + c] * v[r];
 
-    tmp[c] = (Fq)(acc % MEDS_p);
+    tmp[c] = (Fq)(acc % TRINE_q);
   }
 
   memcpy(out, tmp, sizeof(tmp));
@@ -191,7 +191,7 @@ void pmod_mat_linear_combination(
     for (int i = 0; i < count; i++)
       acc += (uint64_t)coeffs[i] * matrices[i * n * n + pos];
 
-    out[pos] = (Fq)(acc % MEDS_p);
+    out[pos] = (Fq)(acc % TRINE_q);
   }
 }
 
@@ -236,7 +236,7 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
         uint64_t candidate_entry = pmod_mat_entry(M, M_r, M_c, r2, c);
         uint64_t current_entry = pmod_mat_entry(M, M_r, M_c, r, c);
         uint64_t updated_entry =
-            (current_entry + candidate_entry * (pivot_entry == 0)) % MEDS_p;
+            (current_entry + candidate_entry * (pivot_entry == 0)) % TRINE_q;
 
         pmod_mat_set_entry(M, M_r, M_c, r, c, updated_entry);
       }
@@ -253,7 +253,7 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
     for (int c = r; c < M_c; c++)
     {
       uint64_t row_entry = pmod_mat_entry(M, M_r, M_c, r, c);
-      uint64_t normalized_entry = (row_entry * pivot_inv) % MEDS_p;
+      uint64_t normalized_entry = (row_entry * pivot_inv) % TRINE_q;
 
       pmod_mat_set_entry(M, M_r, M_c, r, c, normalized_entry);
     }
@@ -272,9 +272,9 @@ int pmod_mat_row_echelon_ct(Fq *M, int M_r, int M_c)
 
         int64_t reduced_entry =
             (int64_t)target_row_entry -
-            (int64_t)((pivot_row_entry * factor) % MEDS_p);
+            (int64_t)((pivot_row_entry * factor) % TRINE_q);
 
-        reduced_entry += MEDS_p * (reduced_entry < 0);
+        reduced_entry += TRINE_q * (reduced_entry < 0);
 
         pmod_mat_set_entry(
             M, M_r, M_c, r2, c, (Fq)reduced_entry);
@@ -300,9 +300,9 @@ int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
 
       int64_t reduced_pivot_entry =
           (int64_t)target_pivot_entry -
-          (int64_t)((pivot_entry * factor) % MEDS_p);
+          (int64_t)((pivot_entry * factor) % TRINE_q);
 
-      reduced_pivot_entry += MEDS_p * (reduced_pivot_entry < 0);
+      reduced_pivot_entry += TRINE_q * (reduced_pivot_entry < 0);
 
       pmod_mat_set_entry(
           M, M_r, M_c, r2, r, (Fq)reduced_pivot_entry);
@@ -316,9 +316,9 @@ int pmod_mat_back_substitution_ct(Fq *M, int M_r, int M_c)
 
         int64_t reduced_entry =
             (int64_t)target_row_entry -
-            (int64_t)((pivot_row_entry * factor) % MEDS_p);
+            (int64_t)((pivot_row_entry * factor) % TRINE_q);
 
-        reduced_entry += MEDS_p * (reduced_entry < 0);
+        reduced_entry += TRINE_q * (reduced_entry < 0);
 
         pmod_mat_set_entry(
             M, M_r, M_c, r2, c, (Fq)reduced_entry);

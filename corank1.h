@@ -14,7 +14,7 @@
  *   -1  invalid input
  *
  * Preconditions:
- *   1 <= n && n <= MEDS_n
+ *   1 <= n && n <= TRINE_n
  *   M contains n consecutive row-major n x n slices
  *   out_u provides n writable field elements
  *   shake is initialized for SHAKE256 squeezing

@@ -43,8 +43,8 @@ static void trine_store_u32_le(
 
 static void trine_init_round_shake(
     keccak_state *shake,
-    const uint8_t round_seed[MEDS_round_seed_bytes],
-    const uint8_t salt[MEDS_salt_bytes],
+    const uint8_t round_seed[TRINE_round_seed_bytes],
+    const uint8_t salt[TRINE_salt_bytes],
     uint32_t round_index)
 {
   uint8_t round_index_le[4];
@@ -56,8 +56,8 @@ static void trine_init_round_shake(
       shake,
       TRINE_ROUND_DOMAIN,
       sizeof(TRINE_ROUND_DOMAIN) - 1u);
-  shake256_absorb(shake, salt, MEDS_salt_bytes);
-  shake256_absorb(shake, round_seed, MEDS_round_seed_bytes);
+  shake256_absorb(shake, salt, TRINE_salt_bytes);
+  shake256_absorb(shake, round_seed, TRINE_round_seed_bytes);
   shake256_absorb(shake, round_index_le, sizeof(round_index_le));
   shake256_finalize(shake);
 }
@@ -84,30 +84,30 @@ static int trine_message_len_to_size(
 }
 
 static int trine_challenges_valid(
-    const trine_challenge_t challenges[MEDS_r])
+    const trine_challenge_t challenges[TRINE_r])
 {
   size_t nonbase_count = 0;
   size_t base_count = 0;
 
-  for (int i = 0; i < MEDS_r; i++)
+  for (int i = 0; i < TRINE_r; i++)
   {
-    if (challenges[i] < MEDS_X)
+    if (challenges[i] < TRINE_X)
       nonbase_count++;
-    else if (challenges[i] == MEDS_BASE_FORM_INDEX)
+    else if (challenges[i] == TRINE_BASE_FORM_INDEX)
       base_count++;
     else
       return 0;
   }
 
-  return nonbase_count == MEDS_K &&
+  return nonbase_count == TRINE_K &&
          base_count == TRINE_BASE_SEED_COUNT;
 }
 
 static int trine_challenges_equal(
-    const trine_challenge_t a[MEDS_r],
-    const trine_challenge_t b[MEDS_r])
+    const trine_challenge_t a[TRINE_r],
+    const trine_challenge_t b[TRINE_r])
 {
-  for (int i = 0; i < MEDS_r; i++)
+  for (int i = 0; i < TRINE_r; i++)
     if (a[i] != b[i])
       return 0;
 
@@ -123,7 +123,7 @@ static int trine_absorb_canonical_form(
           encoded_buffer,
           TRINE_TRIFORM_BYTES,
           psi,
-          MEDS_n) != 0)
+          TRINE_n) != 0)
     return -1;
 
   shake256_absorb(transcript, encoded_buffer, TRINE_TRIFORM_BYTES);
@@ -134,8 +134,8 @@ static int trine_derive_round_commitment_vartime(
     Fq *out_a,
     Fq *out_psi,
     const Fq *base_form,
-    const uint8_t round_seed[MEDS_round_seed_bytes],
-    const uint8_t salt[MEDS_salt_bytes],
+    const uint8_t round_seed[TRINE_round_seed_bytes],
+    const uint8_t salt[TRINE_salt_bytes],
     uint32_t round_index)
 {
   if (out_psi == NULL ||
@@ -145,16 +145,16 @@ static int trine_derive_round_commitment_vartime(
     return -1;
 
   keccak_state shake;
-  Fq a_tmp[MEDS_n];
+  Fq a_tmp[TRINE_n];
 
   trine_init_round_shake(&shake, round_seed, salt, round_index);
 
   for (;;)
   {
-    if (corank1_cal_vartime(a_tmp, base_form, &shake, MEDS_n) != 0)
+    if (corank1_cal_vartime(a_tmp, base_form, &shake, TRINE_n) != 0)
       return -1;
 
-    if (canonical_form_vartime(out_psi, base_form, a_tmp, MEDS_n) == 0)
+    if (canonical_form_vartime(out_psi, base_form, a_tmp, TRINE_n) == 0)
     {
       if (out_a != NULL)
         memcpy(out_a, a_tmp, sizeof(a_tmp));
@@ -170,24 +170,24 @@ int crypto_sign_keypair(
     unsigned char *sk)
 {
   int result = -1;
-  uint8_t secret_seed[MEDS_sec_seed_bytes] = {0};
-  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
+  uint8_t secret_seed[TRINE_secret_seed_bytes] = {0};
+  uint8_t public_seed[TRINE_public_seed_bytes] = {0};
   uint8_t sk_tmp[TRINE_SK_BYTES] = {0};
-  const size_t form_elements = triform_element_count(MEDS_n);
+  const size_t form_elements = triform_element_count(TRINE_n);
 
   Fq *base_form = NULL;
   Fq *nonbase_forms = NULL;
   uint8_t *pk_tmp = NULL;
-  Fq A[MEDS_n * MEDS_n];
-  Fq B[MEDS_n * MEDS_n];
-  Fq C[MEDS_n * MEDS_n];
+  Fq A[TRINE_n * TRINE_n];
+  Fq B[TRINE_n * TRINE_n];
+  Fq C[TRINE_n * TRINE_n];
 
   if (pk == NULL || sk == NULL)
     goto cleanup;
 
   base_form = trine_alloc_array(form_elements, sizeof(*base_form));
   nonbase_forms = trine_alloc_array(
-      (size_t)MEDS_X * form_elements,
+      (size_t)TRINE_X * form_elements,
       sizeof(*nonbase_forms));
   pk_tmp = trine_alloc_array(TRINE_PK_BYTES, sizeof(*pk_tmp));
 
@@ -202,21 +202,21 @@ int crypto_sign_keypair(
   if (trine_expand_public_seed(public_seed, secret_seed) != 0)
     goto cleanup;
 
-  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+  if (trine_expand_base_form(base_form, public_seed, TRINE_n) != 0)
     goto cleanup;
 
-  for (uint32_t i = 0; i < (uint32_t)MEDS_X; i++)
+  for (uint32_t i = 0; i < (uint32_t)TRINE_X; i++)
   {
     if (trine_expand_secret_matrix_pair_vartime(
-            A, NULL, secret_seed, TRINE_MATRIX_A, i, MEDS_n) != 0)
+            A, NULL, secret_seed, TRINE_MATRIX_A, i, TRINE_n) != 0)
       goto cleanup;
 
     if (trine_expand_secret_matrix_pair_vartime(
-            B, NULL, secret_seed, TRINE_MATRIX_B, i, MEDS_n) != 0)
+            B, NULL, secret_seed, TRINE_MATRIX_B, i, TRINE_n) != 0)
       goto cleanup;
 
     if (trine_expand_secret_matrix_pair_vartime(
-            C, NULL, secret_seed, TRINE_MATRIX_C, i, MEDS_n) != 0)
+            C, NULL, secret_seed, TRINE_MATRIX_C, i, TRINE_n) != 0)
       goto cleanup;
 
     triform_action_pullback(
@@ -225,7 +225,7 @@ int crypto_sign_keypair(
         A,
         B,
         C,
-        MEDS_n);
+        TRINE_n);
   }
 
   if (trine_codec_encode_public_key(
@@ -266,14 +266,14 @@ int crypto_sign(
 {
   int result = -1;
   size_t message_len = 0;
-  uint8_t secret_seed[MEDS_sec_seed_bytes] = {0};
-  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
-  uint8_t digest[MEDS_digest_bytes] = {0};
-  uint8_t salt[MEDS_salt_bytes] = {0};
-  trine_challenge_t challenges[MEDS_r];
-  const size_t form_elements = triform_element_count(MEDS_n);
-  const size_t matrix_elements = (size_t)MEDS_n * (size_t)MEDS_n;
-  const size_t response_elements = (size_t)MEDS_K * (size_t)MEDS_n;
+  uint8_t secret_seed[TRINE_secret_seed_bytes] = {0};
+  uint8_t public_seed[TRINE_public_seed_bytes] = {0};
+  uint8_t digest[TRINE_digest_bytes] = {0};
+  uint8_t salt[TRINE_salt_bytes] = {0};
+  trine_challenge_t challenges[TRINE_r];
+  const size_t form_elements = triform_element_count(TRINE_n);
+  const size_t matrix_elements = (size_t)TRINE_n * (size_t)TRINE_n;
+  const size_t response_elements = (size_t)TRINE_K * (size_t)TRINE_n;
 
   Fq *base_form = NULL;
   Fq *a_all = NULL;
@@ -305,15 +305,15 @@ int crypto_sign(
     goto cleanup;
 
   base_form = trine_alloc_array(form_elements, sizeof(*base_form));
-  a_all = trine_alloc_array((size_t)MEDS_r * (size_t)MEDS_n, sizeof(*a_all));
+  a_all = trine_alloc_array((size_t)TRINE_r * (size_t)TRINE_n, sizeof(*a_all));
   a_inverse_cache = trine_alloc_array(
-      (size_t)MEDS_X * matrix_elements,
+      (size_t)TRINE_X * matrix_elements,
       sizeof(*a_inverse_cache));
-  a_inverse_ready = calloc((size_t)MEDS_X, sizeof(*a_inverse_ready));
+  a_inverse_ready = calloc((size_t)TRINE_X, sizeof(*a_inverse_ready));
   responses = trine_alloc_array(response_elements, sizeof(*responses));
   psi = trine_alloc_array(form_elements, sizeof(*psi));
   round_seeds = trine_alloc_array(
-      (size_t)MEDS_r * (size_t)MEDS_round_seed_bytes,
+      (size_t)TRINE_r * (size_t)TRINE_round_seed_bytes,
       sizeof(*round_seeds));
   base_seeds = trine_alloc_array(TRINE_BASE_SEED_BYTES, sizeof(*base_seeds));
   encoded_psi = trine_alloc_array(TRINE_TRIFORM_BYTES, sizeof(*encoded_psi));
@@ -334,7 +334,7 @@ int crypto_sign(
   if (trine_expand_public_seed(public_seed, secret_seed) != 0)
     goto cleanup;
 
-  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+  if (trine_expand_base_form(base_form, public_seed, TRINE_n) != 0)
     goto cleanup;
 
   if (randombytes(salt, sizeof(salt)) != RNG_SUCCESS)
@@ -342,7 +342,7 @@ int crypto_sign(
 
   if (randombytes(
           round_seeds,
-          (unsigned long long)MEDS_r * MEDS_round_seed_bytes) != RNG_SUCCESS)
+          (unsigned long long)TRINE_r * TRINE_round_seed_bytes) != RNG_SUCCESS)
     goto cleanup;
 
   keccak_state transcript;
@@ -350,11 +350,11 @@ int crypto_sign(
   if (message_len != 0u)
     shake256_absorb(&transcript, m, message_len);
 
-  for (int round = 0; round < MEDS_r; round++)
+  for (int round = 0; round < TRINE_r; round++)
   {
     uint8_t *round_seed =
-        round_seeds + (size_t)round * (size_t)MEDS_round_seed_bytes;
-    Fq *round_a = a_all + (size_t)round * (size_t)MEDS_n;
+        round_seeds + (size_t)round * (size_t)TRINE_round_seed_bytes;
+    Fq *round_a = a_all + (size_t)round * (size_t)TRINE_n;
 
     if (trine_derive_round_commitment_vartime(
             round_a,
@@ -376,7 +376,7 @@ int crypto_sign(
           digest,
           sizeof(digest),
           challenges,
-          MEDS_r) != 0)
+          TRINE_r) != 0)
     goto cleanup;
 
   if (!trine_challenges_valid(challenges))
@@ -385,15 +385,15 @@ int crypto_sign(
   size_t response_index = 0;
   size_t base_seed_index = 0;
 
-  for (int round = 0; round < MEDS_r; round++)
+  for (int round = 0; round < TRINE_r; round++)
   {
     const trine_challenge_t challenge = challenges[round];
 
-    if (challenge < MEDS_X)
+    if (challenge < TRINE_X)
     {
       const size_t matrix_offset = (size_t)challenge * matrix_elements;
-      Fq *response = responses + response_index * (size_t)MEDS_n;
-      const Fq *round_a = a_all + (size_t)round * (size_t)MEDS_n;
+      Fq *response = responses + response_index * (size_t)TRINE_n;
+      const Fq *round_a = a_all + (size_t)round * (size_t)TRINE_n;
 
       if (!a_inverse_ready[challenge])
       {
@@ -403,7 +403,7 @@ int crypto_sign(
                 secret_seed,
                 TRINE_MATRIX_A,
                 challenge,
-                MEDS_n) != 0)
+                TRINE_n) != 0)
           goto cleanup;
 
         a_inverse_ready[challenge] = 1;
@@ -413,15 +413,15 @@ int crypto_sign(
           response,
           a_inverse_cache + matrix_offset,
           round_a,
-          MEDS_n);
+          TRINE_n);
       response_index++;
     }
-    else if (challenge == MEDS_BASE_FORM_INDEX)
+    else if (challenge == TRINE_BASE_FORM_INDEX)
     {
       memcpy(
-          base_seeds + base_seed_index * (size_t)MEDS_round_seed_bytes,
-          round_seeds + (size_t)round * (size_t)MEDS_round_seed_bytes,
-          MEDS_round_seed_bytes);
+          base_seeds + base_seed_index * (size_t)TRINE_round_seed_bytes,
+          round_seeds + (size_t)round * (size_t)TRINE_round_seed_bytes,
+          TRINE_round_seed_bytes);
       base_seed_index++;
     }
     else
@@ -430,7 +430,7 @@ int crypto_sign(
     }
   }
 
-  if (response_index != MEDS_K ||
+  if (response_index != TRINE_K ||
       base_seed_index != TRINE_BASE_SEED_COUNT)
     goto cleanup;
 
@@ -453,12 +453,12 @@ cleanup:
   trine_secure_clear(secret_seed, sizeof(secret_seed));
   trine_secure_clear(digest, sizeof(digest));
   trine_secure_clear(salt, sizeof(salt));
-  trine_secure_clear(a_all, (size_t)MEDS_r * (size_t)MEDS_n * sizeof(*a_all));
+  trine_secure_clear(a_all, (size_t)TRINE_r * (size_t)TRINE_n * sizeof(*a_all));
   trine_secure_clear(
       a_inverse_cache,
-      (size_t)MEDS_X * matrix_elements * sizeof(*a_inverse_cache));
+      (size_t)TRINE_X * matrix_elements * sizeof(*a_inverse_cache));
   trine_secure_clear(responses, response_elements * sizeof(*responses));
-  trine_secure_clear(round_seeds, (size_t)MEDS_r * MEDS_round_seed_bytes);
+  trine_secure_clear(round_seeds, (size_t)TRINE_r * TRINE_round_seed_bytes);
   trine_secure_clear(base_seeds, TRINE_BASE_SEED_BYTES);
   trine_secure_clear(signature_tmp, TRINE_SIG_BYTES);
   free(base_form);
@@ -483,14 +483,14 @@ int crypto_sign_open(
 {
   int result = -1;
   size_t message_len = 0;
-  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
-  uint8_t digest[MEDS_digest_bytes] = {0};
-  uint8_t digest_check[MEDS_digest_bytes] = {0};
-  uint8_t salt[MEDS_salt_bytes] = {0};
-  trine_challenge_t challenges[MEDS_r];
-  trine_challenge_t challenges_check[MEDS_r];
-  const size_t form_elements = triform_element_count(MEDS_n);
-  const size_t response_elements = (size_t)MEDS_K * (size_t)MEDS_n;
+  uint8_t public_seed[TRINE_public_seed_bytes] = {0};
+  uint8_t digest[TRINE_digest_bytes] = {0};
+  uint8_t digest_check[TRINE_digest_bytes] = {0};
+  uint8_t salt[TRINE_salt_bytes] = {0};
+  trine_challenge_t challenges[TRINE_r];
+  trine_challenge_t challenges_check[TRINE_r];
+  const size_t form_elements = triform_element_count(TRINE_n);
+  const size_t response_elements = (size_t)TRINE_K * (size_t)TRINE_n;
 
   Fq *base_form = NULL;
   Fq *nonbase_forms = NULL;
@@ -515,7 +515,7 @@ int crypto_sign_open(
 
   base_form = trine_alloc_array(form_elements, sizeof(*base_form));
   nonbase_forms = trine_alloc_array(
-      (size_t)MEDS_X * form_elements,
+      (size_t)TRINE_X * form_elements,
       sizeof(*nonbase_forms));
   responses = trine_alloc_array(response_elements, sizeof(*responses));
   base_seeds = trine_alloc_array(TRINE_BASE_SEED_BYTES, sizeof(*base_seeds));
@@ -537,7 +537,7 @@ int crypto_sign_open(
           TRINE_PK_BYTES) != 0)
     goto cleanup;
 
-  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+  if (trine_expand_base_form(base_form, public_seed, TRINE_n) != 0)
     goto cleanup;
 
   if (trine_codec_decode_signature_checked(
@@ -553,7 +553,7 @@ int crypto_sign_open(
           digest,
           sizeof(digest),
           challenges,
-          MEDS_r) != 0)
+          TRINE_r) != 0)
     goto cleanup;
 
   if (!trine_challenges_valid(challenges))
@@ -569,30 +569,30 @@ int crypto_sign_open(
   size_t response_index = 0;
   size_t base_seed_index = 0;
 
-  for (int round = 0; round < MEDS_r; round++)
+  for (int round = 0; round < TRINE_r; round++)
   {
     const trine_challenge_t challenge = challenges[round];
 
-    if (challenge < MEDS_X)
+    if (challenge < TRINE_X)
     {
       const Fq *selected_form =
           nonbase_forms + (size_t)challenge * form_elements;
       const Fq *response =
-          responses + response_index * (size_t)MEDS_n;
+          responses + response_index * (size_t)TRINE_n;
 
       if (canonical_form_vartime(
               psi,
               selected_form,
               response,
-              MEDS_n) != 0)
+              TRINE_n) != 0)
         goto cleanup;
 
       response_index++;
     }
-    else if (challenge == MEDS_BASE_FORM_INDEX)
+    else if (challenge == TRINE_BASE_FORM_INDEX)
     {
       const uint8_t *round_seed =
-          base_seeds + base_seed_index * (size_t)MEDS_round_seed_bytes;
+          base_seeds + base_seed_index * (size_t)TRINE_round_seed_bytes;
 
       if (trine_derive_round_commitment_vartime(
               NULL,
@@ -614,7 +614,7 @@ int crypto_sign_open(
       goto cleanup;
   }
 
-  if (response_index != MEDS_K ||
+  if (response_index != TRINE_K ||
       base_seed_index != TRINE_BASE_SEED_COUNT)
     goto cleanup;
 
@@ -625,7 +625,7 @@ int crypto_sign_open(
           digest_check,
           sizeof(digest_check),
           challenges_check,
-          MEDS_r) != 0)
+          TRINE_r) != 0)
     goto cleanup;
 
   if (!trine_challenges_equal(challenges, challenges_check))

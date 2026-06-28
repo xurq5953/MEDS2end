@@ -4,7 +4,7 @@
 
 typedef struct {
   int rank;
-  int pivot_cols[MEDS_n];
+  int pivot_cols[TRINE_n];
 } pmod_elim_info_t;
 
 static void swap_rows(Fq *A, int r1, int r2, int n)
@@ -152,7 +152,7 @@ int pmod_mat_right_kernel_corank1_vartime(
   if (info.rank != n - 1)
     return -1;
 
-  int is_pivot[MEDS_n] = {0};
+  int is_pivot[TRINE_n] = {0};
 
   for (int i = 0; i < info.rank; i++)
     is_pivot[info.pivot_cols[i]] = 1;

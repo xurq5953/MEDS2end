@@ -89,13 +89,13 @@ static int ranges_overlap(
 }
 
 int trine_expand_public_seed(
-    uint8_t out_public_seed[MEDS_pub_seed_bytes],
-    const uint8_t secret_seed[MEDS_sec_seed_bytes])
+    uint8_t out_public_seed[TRINE_public_seed_bytes],
+    const uint8_t secret_seed[TRINE_secret_seed_bytes])
 {
   if (out_public_seed == NULL || secret_seed == NULL)
     return -1;
 
-  uint8_t tmp[MEDS_pub_seed_bytes];
+  uint8_t tmp[TRINE_public_seed_bytes];
   keccak_state shake;
 
   init_domain_shake(
@@ -103,7 +103,7 @@ int trine_expand_public_seed(
       TRINE_PURPOSE_PUBLIC_SEED,
       0,
       secret_seed,
-      MEDS_sec_seed_bytes);
+      TRINE_secret_seed_bytes);
   shake256_squeeze(tmp, sizeof(tmp), &shake);
 
   memcpy(out_public_seed, tmp, sizeof(tmp));
@@ -112,13 +112,13 @@ int trine_expand_public_seed(
 
 int trine_expand_base_form(
     Fq *out_base_form,
-    const uint8_t public_seed[MEDS_pub_seed_bytes],
+    const uint8_t public_seed[TRINE_public_seed_bytes],
     int n)
 {
   if (out_base_form == NULL || public_seed == NULL)
     return -1;
 
-  if (n < 1 || n > MEDS_n)
+  if (n < 1 || n > TRINE_n)
     return -1;
 
   Fq tmp[triform_element_count(n)];
@@ -129,7 +129,7 @@ int trine_expand_base_form(
       TRINE_PURPOSE_BASE_FORM,
       0,
       public_seed,
-      MEDS_pub_seed_bytes);
+      TRINE_public_seed_bytes);
 
   for (size_t i = 0; i < triform_element_count(n); i++)
     tmp[i] = rnd_GF(&shake);
@@ -141,7 +141,7 @@ int trine_expand_base_form(
 int trine_expand_secret_matrix_pair_vartime(
     Fq *out_matrix,
     Fq *out_inverse,
-    const uint8_t secret_seed[MEDS_sec_seed_bytes],
+    const uint8_t secret_seed[TRINE_secret_seed_bytes],
     trine_matrix_role_t role,
     uint32_t index,
     int n)
@@ -152,10 +152,10 @@ int trine_expand_secret_matrix_pair_vartime(
   if (out_matrix == NULL && out_inverse == NULL)
     return -1;
 
-  if (n < 1 || n > MEDS_n)
+  if (n < 1 || n > TRINE_n)
     return -1;
 
-  if (index >= (uint32_t)MEDS_X)
+  if (index >= (uint32_t)TRINE_X)
     return -1;
 
   const size_t matrix_elements = (size_t)n * (size_t)n;
@@ -166,12 +166,12 @@ int trine_expand_secret_matrix_pair_vartime(
   if (role_to_purpose(role, &purpose) != 0)
     return -1;
 
-  uint8_t matrix_seed[MEDS_sec_seed_bytes];
+  uint8_t matrix_seed[TRINE_secret_seed_bytes];
   keccak_state shake;
   Fq matrix_tmp[matrix_elements];
   Fq inverse_tmp[matrix_elements];
 
-  init_domain_shake(&shake, purpose, index, secret_seed, MEDS_sec_seed_bytes);
+  init_domain_shake(&shake, purpose, index, secret_seed, TRINE_secret_seed_bytes);
   shake256_squeeze(matrix_seed, sizeof(matrix_seed), &shake);
 
   rnd_inv_matrix(matrix_tmp, n, n, matrix_seed, sizeof(matrix_seed));

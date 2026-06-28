@@ -4,7 +4,7 @@
 
 static int valid_dimension(int n)
 {
-  return n >= 1 && n <= MEDS_n;
+  return n >= 1 && n <= TRINE_n;
 }
 
 static size_t vector_element_count(int n)
@@ -20,8 +20,8 @@ static size_t triform_element_count_local(int n)
 size_t trine_codec_fq_array_bytes(
     size_t element_count)
 {
-  const size_t bit_count = element_count * (size_t)Fq_bits;
-  return MEDS_CEIL_DIV(bit_count, 8u);
+  const size_t bit_count = element_count * (size_t)TRINE_q_bits;
+  return TRINE_CEIL_DIV(bit_count, 8u);
 }
 
 static int validate_fq_array(
@@ -29,7 +29,7 @@ static int validate_fq_array(
     size_t element_count)
 {
   for (size_t i = 0; i < element_count; i++)
-    if (values[i] >= MEDS_p)
+    if (values[i] >= TRINE_q)
       return -1;
 
   return 0;
@@ -46,7 +46,7 @@ static void encode_fq_array_unchecked(
   {
     const uint32_t value = values[i];
 
-    for (uint32_t bit = 0; bit < Fq_bits; bit++)
+    for (uint32_t bit = 0; bit < TRINE_q_bits; bit++)
     {
       if (((value >> bit) & 1u) != 0u)
         out[bit_pos / 8u] |= (uint8_t)(1u << (bit_pos % 8u));
@@ -60,10 +60,10 @@ static Fq decode_fq_unchecked(
     const uint8_t *in,
     size_t element_index)
 {
-  const size_t base_bit = element_index * (size_t)Fq_bits;
+  const size_t base_bit = element_index * (size_t)TRINE_q_bits;
   uint32_t value = 0;
 
-  for (uint32_t bit = 0; bit < Fq_bits; bit++)
+  for (uint32_t bit = 0; bit < TRINE_q_bits; bit++)
   {
     const size_t bit_pos = base_bit + (size_t)bit;
     const uint32_t input_bit =
@@ -80,7 +80,7 @@ static int padding_is_zero(
     size_t element_count,
     size_t in_len)
 {
-  const size_t used_bits = element_count * (size_t)Fq_bits;
+  const size_t used_bits = element_count * (size_t)TRINE_q_bits;
   const size_t used_in_last_byte = used_bits % 8u;
 
   if (used_in_last_byte == 0u)
@@ -144,7 +144,7 @@ int trine_codec_decode_fq_array_checked(
   for (size_t i = 0; i < element_count; i++)
   {
     tmp[i] = decode_fq_unchecked(in, i);
-    if (tmp[i] >= MEDS_p)
+    if (tmp[i] >= TRINE_q)
       return -1;
   }
 
@@ -219,7 +219,7 @@ int trine_codec_decode_triform_checked(
 int trine_codec_encode_public_key(
     uint8_t *out_pk,
     size_t out_len,
-    const uint8_t public_seed[MEDS_pub_seed_bytes],
+    const uint8_t public_seed[TRINE_public_seed_bytes],
     const Fq *nonbase_forms)
 {
   if (out_len != TRINE_PK_BYTES)
@@ -231,13 +231,13 @@ int trine_codec_encode_public_key(
     return -1;
 
   uint8_t tmp[TRINE_PK_BYTES];
-  memcpy(tmp, public_seed, MEDS_pub_seed_bytes);
+  memcpy(tmp, public_seed, TRINE_public_seed_bytes);
 
-  const size_t form_elements = triform_element_count_local(MEDS_n);
-  for (size_t form = 0; form < (size_t)MEDS_X; form++)
+  const size_t form_elements = triform_element_count_local(TRINE_n);
+  for (size_t form = 0; form < (size_t)TRINE_X; form++)
   {
     uint8_t *encoded_form =
-        tmp + MEDS_pub_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
+        tmp + TRINE_public_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
     const Fq *form_values =
         nonbase_forms + form * form_elements;
 
@@ -245,7 +245,7 @@ int trine_codec_encode_public_key(
             encoded_form,
             TRINE_TRIFORM_BYTES,
             form_values,
-            MEDS_n) != 0)
+            TRINE_n) != 0)
       return -1;
   }
 
@@ -254,7 +254,7 @@ int trine_codec_encode_public_key(
 }
 
 int trine_codec_decode_public_key_checked(
-    uint8_t out_public_seed[MEDS_pub_seed_bytes],
+    uint8_t out_public_seed[TRINE_public_seed_bytes],
     Fq *out_nonbase_forms,
     const uint8_t *pk,
     size_t pk_len)
@@ -267,23 +267,23 @@ int trine_codec_decode_public_key_checked(
       pk == NULL)
     return -1;
 
-  uint8_t public_seed_tmp[MEDS_pub_seed_bytes];
-  const size_t form_elements = triform_element_count_local(MEDS_n);
-  Fq forms_tmp[(size_t)MEDS_X * form_elements];
+  uint8_t public_seed_tmp[TRINE_public_seed_bytes];
+  const size_t form_elements = triform_element_count_local(TRINE_n);
+  Fq forms_tmp[(size_t)TRINE_X * form_elements];
 
   memcpy(public_seed_tmp, pk, sizeof(public_seed_tmp));
 
-  for (size_t form = 0; form < (size_t)MEDS_X; form++)
+  for (size_t form = 0; form < (size_t)TRINE_X; form++)
   {
     const uint8_t *encoded_form =
-        pk + MEDS_pub_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
+        pk + TRINE_public_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
     Fq *form_values = forms_tmp + form * form_elements;
 
     if (trine_codec_decode_triform_checked(
             form_values,
             encoded_form,
             TRINE_TRIFORM_BYTES,
-            MEDS_n) != 0)
+            TRINE_n) != 0)
       return -1;
   }
 
@@ -296,7 +296,7 @@ int trine_codec_decode_public_key_checked(
 int trine_codec_encode_secret_key(
     uint8_t *out_sk,
     size_t out_len,
-    const uint8_t secret_seed[MEDS_sec_seed_bytes])
+    const uint8_t secret_seed[TRINE_secret_seed_bytes])
 {
   if (out_len != TRINE_SK_BYTES)
     return -1;
@@ -312,7 +312,7 @@ int trine_codec_encode_secret_key(
 }
 
 int trine_codec_decode_secret_key(
-    uint8_t out_secret_seed[MEDS_sec_seed_bytes],
+    uint8_t out_secret_seed[TRINE_secret_seed_bytes],
     const uint8_t *sk,
     size_t sk_len)
 {
@@ -334,8 +334,8 @@ int trine_codec_encode_signature(
     size_t out_len,
     const Fq *responses,
     const uint8_t *base_seeds,
-    const uint8_t digest[MEDS_digest_bytes],
-    const uint8_t salt[MEDS_salt_bytes])
+    const uint8_t digest[TRINE_digest_bytes],
+    const uint8_t salt[TRINE_salt_bytes])
 {
   if (out_len != TRINE_SIG_BYTES)
     return -1;
@@ -353,15 +353,15 @@ int trine_codec_encode_signature(
           tmp + TRINE_RESPONSE_OFFSET,
           TRINE_RESPONSE_BYTES,
           responses,
-          (size_t)MEDS_K * (size_t)MEDS_n) != 0)
+          (size_t)TRINE_K * (size_t)TRINE_n) != 0)
     return -1;
 
   memcpy(
       tmp + TRINE_BASE_SEED_OFFSET,
       base_seeds,
       TRINE_BASE_SEED_BYTES);
-  memcpy(tmp + TRINE_DIGEST_OFFSET, digest, MEDS_digest_bytes);
-  memcpy(tmp + TRINE_SALT_OFFSET, salt, MEDS_salt_bytes);
+  memcpy(tmp + TRINE_DIGEST_OFFSET, digest, TRINE_digest_bytes);
+  memcpy(tmp + TRINE_SALT_OFFSET, salt, TRINE_salt_bytes);
 
   memcpy(out_sig, tmp, sizeof(tmp));
   return 0;
@@ -370,8 +370,8 @@ int trine_codec_encode_signature(
 int trine_codec_decode_signature_checked(
     Fq *out_responses,
     uint8_t *out_base_seeds,
-    uint8_t out_digest[MEDS_digest_bytes],
-    uint8_t out_salt[MEDS_salt_bytes],
+    uint8_t out_digest[TRINE_digest_bytes],
+    uint8_t out_salt[TRINE_salt_bytes],
     const uint8_t *sig,
     size_t sig_len)
 {
@@ -385,14 +385,14 @@ int trine_codec_decode_signature_checked(
       sig == NULL)
     return -1;
 
-  Fq responses_tmp[(size_t)MEDS_K * (size_t)MEDS_n];
+  Fq responses_tmp[(size_t)TRINE_K * (size_t)TRINE_n];
   uint8_t base_seeds_tmp[TRINE_BASE_SEED_BYTES];
-  uint8_t digest_tmp[MEDS_digest_bytes];
-  uint8_t salt_tmp[MEDS_salt_bytes];
+  uint8_t digest_tmp[TRINE_digest_bytes];
+  uint8_t salt_tmp[TRINE_salt_bytes];
 
   if (trine_codec_decode_fq_array_checked(
           responses_tmp,
-          (size_t)MEDS_K * (size_t)MEDS_n,
+          (size_t)TRINE_K * (size_t)TRINE_n,
           sig + TRINE_RESPONSE_OFFSET,
           TRINE_RESPONSE_BYTES) != 0)
     return -1;

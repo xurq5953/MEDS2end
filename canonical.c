@@ -183,7 +183,7 @@ int canonical_build_uvw_vartime(
       u1 == NULL)
     return -1;
 
-  if (n < 1 || n > MEDS_n)
+  if (n < 1 || n > TRINE_n)
     return -1;
 
   if (!vector_is_nonzero(u1, n))
@@ -311,7 +311,7 @@ int canonical_diagonal_normalize_vartime(
       W == NULL)
     return -1;
 
-  if (n < 5 || n > MEDS_n)
+  if (n < 5 || n > TRINE_n)
     return -1;
 
   Fq transformed[triform_element_count(n)];
@@ -340,7 +340,7 @@ int canonical_form_vartime(
       u1 == NULL)
     return -1;
 
-  if (n < 5 || n > MEDS_n)
+  if (n < 5 || n > TRINE_n)
     return -1;
 
   Fq U[n * n];

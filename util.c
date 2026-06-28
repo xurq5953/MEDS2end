@@ -23,9 +23,9 @@ void XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, in
 
 Fq rnd_GF(keccak_state *shake)
 {
-  Fq val = MEDS_p;
+  Fq val = TRINE_q;
 
-  while (val >= MEDS_p)
+  while (val >= TRINE_q)
   {
     uint8_t data[sizeof(Fq)];
     
@@ -35,7 +35,7 @@ Fq rnd_GF(keccak_state *shake)
     for (int i = 0; i < sizeof(Fq); i++)
       val |= data[i] << (i*8);
 
-    val = val & ((1 << Fq_bits) - 1);
+    val = val & ((1 << TRINE_q_bits) - 1);
   }
 
   return val;
@@ -99,7 +99,7 @@ static int sample_masked_le(
   if (out == NULL || shake == NULL || bit_count == 0 || bit_count > 32)
     return -1;
 
-  const size_t byte_count = MEDS_CEIL_DIV((size_t)bit_count, 8u);
+  const size_t byte_count = TRINE_CEIL_DIV((size_t)bit_count, 8u);
   uint8_t buf[4] = {0};
   uint32_t value = 0;
 
@@ -124,20 +124,20 @@ int trine_parse_hash(
   if (digest == NULL || out == NULL)
     return -1;
 
-  if (digest_len != MEDS_digest_bytes || out_len != MEDS_r)
+  if (digest_len != TRINE_digest_bytes || out_len != TRINE_r)
     return -1;
 
-  trine_challenge_t parsed[MEDS_r];
-  uint16_t raw[MEDS_r] = {0};
+  trine_challenge_t parsed[TRINE_r];
+  uint16_t raw[TRINE_r] = {0};
   keccak_state shake;
-  const unsigned position_bits = bit_length_u32((uint32_t)(MEDS_r - 1));
-  const unsigned value_bits = bit_length_u32((uint32_t)MEDS_X);
+  const unsigned position_bits = bit_length_u32((uint32_t)(TRINE_r - 1));
+  const unsigned value_bits = bit_length_u32((uint32_t)TRINE_X);
 
   shake256_init(&shake);
   shake256_absorb(&shake, digest, digest_len);
   shake256_finalize(&shake);
 
-  for (int selected = 0; selected < MEDS_K; selected++)
+  for (int selected = 0; selected < TRINE_K; selected++)
   {
     uint32_t position = 0;
     uint32_t value = 0;
@@ -147,20 +147,20 @@ int trine_parse_hash(
       if (sample_masked_le(&position, &shake, position_bits) != 0)
         return -1;
     }
-    while (position >= (uint32_t)MEDS_r || raw[position] != 0);
+    while (position >= (uint32_t)TRINE_r || raw[position] != 0);
 
     do
     {
       if (sample_masked_le(&value, &shake, value_bits) != 0)
         return -1;
     }
-    while (value == 0 || value > (uint32_t)MEDS_X);
+    while (value == 0 || value > (uint32_t)TRINE_X);
 
     raw[position] = (uint16_t)value;
   }
 
-  for (int i = 0; i < MEDS_r; i++)
-    parsed[i] = (trine_challenge_t)(MEDS_X - raw[i]);
+  for (int i = 0; i < TRINE_r; i++)
+    parsed[i] = (trine_challenge_t)(TRINE_X - raw[i]);
 
   memcpy(out, parsed, sizeof(parsed));
   return 0;
@@ -168,74 +168,74 @@ int trine_parse_hash(
 
 int solve(Fq *A, Fq *B_inv, Fq *G0prime, Fq Amm)
 {
-  Fq P0prime0[MEDS_n*MEDS_n];
-  Fq P0prime1[MEDS_n*MEDS_n];
+  Fq P0prime0[TRINE_n*TRINE_n];
+  Fq P0prime1[TRINE_n*TRINE_n];
 
-  for (int i = 0; i < MEDS_n*MEDS_n; i++)
+  for (int i = 0; i < TRINE_n*TRINE_n; i++)
   {
     P0prime0[i] = G0prime[i];
-    P0prime1[i] = G0prime[i + MEDS_n * MEDS_n];
+    P0prime1[i] = G0prime[i + TRINE_n * TRINE_n];
   }
 
-  Fq N[MEDS_n * MEDS_n];
+  Fq N[TRINE_n * TRINE_n];
 
-  for (int i = 0; i < MEDS_n; i++)
-    for (int j = 0; j < MEDS_n; j++)
-      N[j*MEDS_n + i] = (MEDS_p - P0prime0[i*MEDS_n + j]) % MEDS_p;
+  for (int i = 0; i < TRINE_n; i++)
+    for (int j = 0; j < TRINE_n; j++)
+      N[j*TRINE_n + i] = (TRINE_q - P0prime0[i*TRINE_n + j]) % TRINE_q;
 
-  //LOG_MAT(N, MEDS_n, MEDS_n);
-
-
-  Fq M[MEDS_n*(MEDS_n + MEDS_n + 2)] = {0};
-
-  for (int i = 0; i < MEDS_n; i++)
-    for (int j = 0; j < MEDS_n; j++)
-      M[j*(MEDS_n + MEDS_n + 2) + i] = (MEDS_p - P0prime1[i*MEDS_n + j]) % MEDS_p;
-
-  for (int i = 0; i < MEDS_n; i++)
-    for (int j = 0; j < MEDS_n; j++)
-      M[j*(MEDS_n + MEDS_n + 2) + i + MEDS_n] = P0prime0[i*MEDS_n + j];
-
-  for (int j = 0; j < MEDS_n; j++)
-    M[j*(MEDS_n + MEDS_n + 2) + MEDS_n + MEDS_n] = ((uint32_t)P0prime0[(MEDS_n-1)*MEDS_n + j] * (MEDS_p - (uint32_t)Amm)) % MEDS_p;
-
-  for (int j = 0; j < MEDS_n; j++)
-    M[j*(MEDS_n + MEDS_n + 2) + MEDS_n + MEDS_n + 1] = ((uint32_t)P0prime1[(MEDS_n-1)*MEDS_n + j] * (uint32_t)Amm) % MEDS_p;
+  //LOG_MAT(N, TRINE_n, TRINE_n);
 
 
-  //LOG_MAT(M, MEDS_n, MEDS_n + MEDS_n + 2);
+  Fq M[TRINE_n*(TRINE_n + TRINE_n + 2)] = {0};
 
-  if (pmod_mat_syst_ct(M, MEDS_n-1, MEDS_n + MEDS_n + 2) < 0)
+  for (int i = 0; i < TRINE_n; i++)
+    for (int j = 0; j < TRINE_n; j++)
+      M[j*(TRINE_n + TRINE_n + 2) + i] = (TRINE_q - P0prime1[i*TRINE_n + j]) % TRINE_q;
+
+  for (int i = 0; i < TRINE_n; i++)
+    for (int j = 0; j < TRINE_n; j++)
+      M[j*(TRINE_n + TRINE_n + 2) + i + TRINE_n] = P0prime0[i*TRINE_n + j];
+
+  for (int j = 0; j < TRINE_n; j++)
+    M[j*(TRINE_n + TRINE_n + 2) + TRINE_n + TRINE_n] = ((uint32_t)P0prime0[(TRINE_n-1)*TRINE_n + j] * (TRINE_q - (uint32_t)Amm)) % TRINE_q;
+
+  for (int j = 0; j < TRINE_n; j++)
+    M[j*(TRINE_n + TRINE_n + 2) + TRINE_n + TRINE_n + 1] = ((uint32_t)P0prime1[(TRINE_n-1)*TRINE_n + j] * (uint32_t)Amm) % TRINE_q;
+
+
+  //LOG_MAT(M, TRINE_n, TRINE_n + TRINE_n + 2);
+
+  if (pmod_mat_syst_ct(M, TRINE_n-1, TRINE_n + TRINE_n + 2) < 0)
     return -1;
 
-  //LOG_MAT_FMT(M, MEDS_n, MEDS_n + MEDS_n + 2, "M part");
+  //LOG_MAT_FMT(M, TRINE_n, TRINE_n + TRINE_n + 2, "M part");
 
   // eliminate last row
-  for (int r = 0; r < MEDS_n-1; r++)
+  for (int r = 0; r < TRINE_n-1; r++)
   {
-    uint64_t factor = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, r);
+    uint64_t factor = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, r);
 
     // ignore last column
-    for (int c = MEDS_n-1; c < MEDS_n + MEDS_n + 1; c++)
+    for (int c = TRINE_n-1; c < TRINE_n + TRINE_n + 1; c++)
     {
-      uint64_t tmp0 = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, c);
-      uint64_t tmp1 = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, r, c);
+      uint64_t tmp0 = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, c);
+      uint64_t tmp1 = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, r, c);
 
-      int64_t val = (tmp1 * factor) % MEDS_p;
+      int64_t val = (tmp1 * factor) % TRINE_q;
 
       val = tmp0 - val;
 
-      val += MEDS_p * (val < 0);
+      val += TRINE_q * (val < 0);
 
-      pmod_mat_set_entry(M, MEDS_n, MEDS_n + MEDS_n + 2,  MEDS_n-1, c, val);
+      pmod_mat_set_entry(M, TRINE_n, TRINE_n + TRINE_n + 2,  TRINE_n-1, c, val);
     }
 
-    pmod_mat_set_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, r, 0);
+    pmod_mat_set_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, r, 0);
   }
 
   // normalize last row
   {
-    uint64_t val = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, MEDS_n-1);
+    uint64_t val = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, TRINE_n-1);
 
     if (val == 0)
       return -1;
@@ -243,155 +243,155 @@ int solve(Fq *A, Fq *B_inv, Fq *G0prime, Fq Amm)
     val = GF_inv(val);
 
     // ignore last column
-    for (int c = MEDS_n; c < MEDS_n + MEDS_n + 1; c++)
+    for (int c = TRINE_n; c < TRINE_n + TRINE_n + 1; c++)
     {
-      uint64_t tmp = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, c);
+      uint64_t tmp = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, c);
 
-      tmp = (tmp * val) % MEDS_p;
+      tmp = (tmp * val) % TRINE_q;
 
-      pmod_mat_set_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, c, tmp);
+      pmod_mat_set_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, c, tmp);
     }
   }
 
-  pmod_mat_set_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, MEDS_n-1, 1);
+  pmod_mat_set_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, TRINE_n-1, 1);
 
-  M[MEDS_n*(MEDS_n + MEDS_n + 2)-1] = 0;
+  M[TRINE_n*(TRINE_n + TRINE_n + 2)-1] = 0;
 
-  //LOG_MAT_FMT(M, MEDS_n, MEDS_n + MEDS_n + 2, "M red");
+  //LOG_MAT_FMT(M, TRINE_n, TRINE_n + TRINE_n + 2, "M red");
 
   // back substitute
-  for (int r = 0; r < MEDS_n-1; r++)
+  for (int r = 0; r < TRINE_n-1; r++)
   {
-    uint64_t factor = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, r, MEDS_n-1);
+    uint64_t factor = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, r, TRINE_n-1);
 
     // ignore last column
-    for (int c = MEDS_n; c < MEDS_n + MEDS_n + 1; c++)
+    for (int c = TRINE_n; c < TRINE_n + TRINE_n + 1; c++)
     {
-        uint64_t tmp0 = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, MEDS_n-1, c);
-        uint64_t tmp1 = pmod_mat_entry(M, MEDS_n, MEDS_n + MEDS_n + 2, r, c);
+        uint64_t tmp0 = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, TRINE_n-1, c);
+        uint64_t tmp1 = pmod_mat_entry(M, TRINE_n, TRINE_n + TRINE_n + 2, r, c);
 
-        int64_t val = (tmp0 * factor) % MEDS_p;
+        int64_t val = (tmp0 * factor) % TRINE_q;
 
         val = tmp1 - val;
 
-        val += MEDS_p * (val < 0);
+        val += TRINE_q * (val < 0);
 
-        pmod_mat_set_entry(M, MEDS_n, MEDS_n + MEDS_n + 2,  r, c, val);
+        pmod_mat_set_entry(M, TRINE_n, TRINE_n + TRINE_n + 2,  r, c, val);
     }
 
-    pmod_mat_set_entry(M, M_r, MEDS_n + MEDS_n + 2, r, MEDS_n-1, 0);
+    pmod_mat_set_entry(M, M_r, TRINE_n + TRINE_n + 2, r, TRINE_n-1, 0);
   }
 
 
-  //LOG_MAT_FMT(M, MEDS_n, MEDS_n + MEDS_n + 2, "M done");
+  //LOG_MAT_FMT(M, TRINE_n, TRINE_n + TRINE_n + 2, "M done");
 
 
-  Fq sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n] = {0};
+  Fq sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n] = {0};
 
-  sol[MEDS_n*MEDS_n + MEDS_n * MEDS_n - 1] = Amm;
+  sol[TRINE_n*TRINE_n + TRINE_n * TRINE_n - 1] = Amm;
 
-  for (int i = 0; i < MEDS_n - 1; i++)
-    sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - MEDS_n + i] = M[(i+1) * (MEDS_n + MEDS_n + 2) - 1];
+  for (int i = 0; i < TRINE_n - 1; i++)
+    sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - TRINE_n + i] = M[(i+1) * (TRINE_n + TRINE_n + 2) - 1];
 
-  for (int i = 0; i < MEDS_n; i++)
-    sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 2*MEDS_n + i] = M[(i+1) * (MEDS_n + MEDS_n + 2) - 2];
+  for (int i = 0; i < TRINE_n; i++)
+    sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 2*TRINE_n + i] = M[(i+1) * (TRINE_n + TRINE_n + 2) - 2];
 
-  for (int i = 0; i < MEDS_n; i++)
-    sol[MEDS_n*MEDS_n - MEDS_n + i] = ((uint32_t)P0prime0[(MEDS_n-1)*MEDS_n + i] * (uint32_t)Amm) % MEDS_p;
+  for (int i = 0; i < TRINE_n; i++)
+    sol[TRINE_n*TRINE_n - TRINE_n + i] = ((uint32_t)P0prime0[(TRINE_n-1)*TRINE_n + i] * (uint32_t)Amm) % TRINE_q;
 
-  //LOG_VEC_FMT(sol, MEDS_n*MEDS_n + MEDS_n*MEDS_n, "initial sol");
+  //LOG_VEC_FMT(sol, TRINE_n*TRINE_n + TRINE_n*TRINE_n, "initial sol");
 
 
   // incomplete blocks:
 
-  for (int i = 0; i < MEDS_n; i++)
-    for (int j = 0; j < MEDS_n-1; j++)
+  for (int i = 0; i < TRINE_n; i++)
+    for (int j = 0; j < TRINE_n-1; j++)
     {
-      uint32_t tmp = (uint32_t)sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 2*MEDS_n + i] + MEDS_p -
-        ((uint32_t)M[i * (MEDS_n + MEDS_n + 2) + MEDS_n + MEDS_n-2 - j] * (uint32_t)sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 2 - j]) % MEDS_p;
-      sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 2*MEDS_n + i] = tmp % MEDS_p;
+      uint32_t tmp = (uint32_t)sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 2*TRINE_n + i] + TRINE_q -
+        ((uint32_t)M[i * (TRINE_n + TRINE_n + 2) + TRINE_n + TRINE_n-2 - j] * (uint32_t)sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 2 - j]) % TRINE_q;
+      sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 2*TRINE_n + i] = tmp % TRINE_q;
     }
 
-  for (int i = 0; i < MEDS_n; i++)
-    for (int j = 0; j < MEDS_n-1; j++)
+  for (int i = 0; i < TRINE_n; i++)
+    for (int j = 0; j < TRINE_n-1; j++)
     {
-      uint32_t tmp = (uint32_t)sol[MEDS_n*MEDS_n - MEDS_n + i] + MEDS_p - 
-        ((uint32_t)N[i * (MEDS_n) + MEDS_n-2 - j] * (uint32_t)sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 2 - j]) % MEDS_p;
-      sol[MEDS_n*MEDS_n - MEDS_n + i] = tmp % MEDS_p;
+      uint32_t tmp = (uint32_t)sol[TRINE_n*TRINE_n - TRINE_n + i] + TRINE_q - 
+        ((uint32_t)N[i * (TRINE_n) + TRINE_n-2 - j] * (uint32_t)sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 2 - j]) % TRINE_q;
+      sol[TRINE_n*TRINE_n - TRINE_n + i] = tmp % TRINE_q;
     }
 
-  //LOG_VEC_FMT(sol, MEDS_n*MEDS_n + MEDS_n*MEDS_n, "incomplete blocks");
+  //LOG_VEC_FMT(sol, TRINE_n*TRINE_n + TRINE_n*TRINE_n, "incomplete blocks");
 
 
   // complete blocks:
 
-  for (int block = 3; block <= MEDS_n; block++)
-    for (int i = 0; i < MEDS_n; i++)
-      for (int j = 0; j < MEDS_n; j++)
+  for (int block = 3; block <= TRINE_n; block++)
+    for (int i = 0; i < TRINE_n; i++)
+      for (int j = 0; j < TRINE_n; j++)
       {
-        uint32_t tmp = sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - block*MEDS_n + i] + MEDS_p -
-          ((uint32_t)M[i * (MEDS_n + MEDS_n + 2) + MEDS_n + MEDS_n-1 - j] * (uint32_t)sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 1 - (block-2)*MEDS_n - j]) % MEDS_p;
-        sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - block*MEDS_n + i] = tmp % MEDS_p;
+        uint32_t tmp = sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - block*TRINE_n + i] + TRINE_q -
+          ((uint32_t)M[i * (TRINE_n + TRINE_n + 2) + TRINE_n + TRINE_n-1 - j] * (uint32_t)sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 1 - (block-2)*TRINE_n - j]) % TRINE_q;
+        sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - block*TRINE_n + i] = tmp % TRINE_q;
       }
 
-  for (int block = 2; block <= MEDS_n; block++)
-    for (int i = 0; i < MEDS_n; i++)
-      for (int j = 0; j < MEDS_n; j++)
+  for (int block = 2; block <= TRINE_n; block++)
+    for (int i = 0; i < TRINE_n; i++)
+      for (int j = 0; j < TRINE_n; j++)
       {
-        uint32_t tmp = sol[MEDS_n*MEDS_n - block*MEDS_n + i] + MEDS_p - 
-          ((uint32_t)N[i * (MEDS_n) + MEDS_n-1 - j] * (uint32_t)sol[MEDS_n*MEDS_n + MEDS_n*MEDS_n - 1 - (block-1)*MEDS_n - j]) % MEDS_p;
-        sol[MEDS_n*MEDS_n - block*MEDS_n + i] = tmp % MEDS_p;
+        uint32_t tmp = sol[TRINE_n*TRINE_n - block*TRINE_n + i] + TRINE_q - 
+          ((uint32_t)N[i * (TRINE_n) + TRINE_n-1 - j] * (uint32_t)sol[TRINE_n*TRINE_n + TRINE_n*TRINE_n - 1 - (block-1)*TRINE_n - j]) % TRINE_q;
+        sol[TRINE_n*TRINE_n - block*TRINE_n + i] = tmp % TRINE_q;
       }
 
-  //LOG_VEC_FMT(sol, MEDS_n*MEDS_n + MEDS_n*MEDS_n, "complete blocks");
+  //LOG_VEC_FMT(sol, TRINE_n*TRINE_n + TRINE_n*TRINE_n, "complete blocks");
 
 
-  for (int i = 0; i < MEDS_n * MEDS_n; i++)
-    A[i] = sol[i + MEDS_n * MEDS_n];
+  for (int i = 0; i < TRINE_n * TRINE_n; i++)
+    A[i] = sol[i + TRINE_n * TRINE_n];
 
-  for (int i = 0; i < MEDS_n * MEDS_n; i++)
+  for (int i = 0; i < TRINE_n * TRINE_n; i++)
     B_inv[i] = sol[i];
 
-  //LOG_MAT(A, MEDS_n, MEDS_n);
-  //LOG_MAT(B_inv, MEDS_n, MEDS_n);
+  //LOG_MAT(A, TRINE_n, TRINE_n);
+  //LOG_MAT(B_inv, TRINE_n, TRINE_n);
 
   return 0;
 }
 
 
-void G_mat_init(Fq *G, Fq *Gsub[MEDS_n])
+void G_mat_init(Fq *G, Fq *Gsub[TRINE_n])
 {
-  for (int i = 0; i < MEDS_n; i++)
-    Gsub[i] = G + i*MEDS_n*MEDS_n;
+  for (int i = 0; i < TRINE_n; i++)
+    Gsub[i] = G + i*TRINE_n*TRINE_n;
 }
 
 void pi(Fq *Gout, Fq *A, Fq *B, Fq *G)
 {
-  Fq *G0sub[MEDS_n];
+  Fq *G0sub[TRINE_n];
   G_mat_init(G, G0sub);
 
-  Fq *Gsub[MEDS_n];
+  Fq *Gsub[TRINE_n];
   G_mat_init(Gout, Gsub);
 
-  for (int i = 0; i < MEDS_n; i++)
+  for (int i = 0; i < TRINE_n; i++)
   {
-    pmod_mat_mul(Gsub[i], A, G0sub[i], MEDS_n);
-    pmod_mat_mul(Gsub[i], Gsub[i], B, MEDS_n);
+    pmod_mat_mul(Gsub[i], A, G0sub[i], TRINE_n);
+    pmod_mat_mul(Gsub[i], Gsub[i], B, TRINE_n);
   }
 }
 
-#if MEDS_n != MEDS_n || MEDS_n != MEDS_n
-#error "MEDS2endGen phi() assumes MEDS_n == MEDS_n == MEDS_n"
+#if TRINE_n != TRINE_n || TRINE_n != TRINE_n
+#error "MEDS2endGen phi() assumes TRINE_n == TRINE_n == TRINE_n"
 #endif
 
 void phi(Fq *Gout, Fq *A, Fq *B, Fq *C, Fq *G)
 {
-  Fq tmp[MEDS_n * MEDS_n * MEDS_n];
+  Fq tmp[TRINE_n * TRINE_n * TRINE_n];
 
   pi(tmp, A, B, G);
 
   pmod_mat_mul_rect(Gout,
-      MEDS_n, MEDS_n * MEDS_n,
-      C, MEDS_n, MEDS_n,
-      tmp, MEDS_n, MEDS_n * MEDS_n);
+      TRINE_n, TRINE_n * TRINE_n,
+      C, TRINE_n, TRINE_n,
+      tmp, TRINE_n, TRINE_n * TRINE_n);
 }
