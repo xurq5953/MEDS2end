@@ -33,6 +33,7 @@ set(COMMON_SOURCES
   matrixelim.c
   triform.c
   canonical.c
+  corank1.c
   bitstream.c
   randombytes.c
 )

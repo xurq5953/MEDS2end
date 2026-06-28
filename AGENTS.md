@@ -112,6 +112,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `matrixelim.c`, `matrixelim.h`: pivot-aware variable-time elimination, rank, inverse, kernels, and span tests;
 - `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
 - `canonical.c`, `canonical.h`: canonical-form layer entry points; currently `BuildUVW`, `DiagonalNormalize`, and `CF`;
+- `corank1.c`, `corank1.h`: randomized corank-one point sampler for Algorithm 1;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -854,23 +855,33 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current Canonical Form (CF) phase
+# Current Corank1Cal phase
 
-The current focused production phase is Canonical Form (`CF`) in the canonical-form layer.
+The current focused production phase is `Corank1Cal`, the randomized corank-one point sampler.
 
 This phase may add or modify only:
 
 ```text
-canonical.h
-canonical.c
+corank1.h
+corank1.c
+Makefile
+CMakeLists.txt
 AGENTS.md
 ```
 
 This phase must not modify:
 
 ```text
+canonical.c
+canonical.h
 triform.c
 triform.h
+matrixelim.c
+matrixelim.h
+matrixmod.c
+matrixmod.h
+field.c
+field.h
 util.c legacy phi()
 util.h legacy phi() declaration
 meds.c phi() call sites
@@ -881,21 +892,128 @@ KeyGen, Sign, Verify mathematical flow
 public-key, secret-key, or signature formats
 params.h or api.h sizes
 challenge parsing or hashing inputs
-Makefile
-CMakeLists.txt
+bitstream.c
+bitstream.h
 ```
 
 The phase implements only:
 
 ```c
-canonical_form_vartime()
+corank1_cal_vartime()
 ```
 
 It must not implement or declare:
 
 ```text
-Corank1Cal
+new CF variants
+protocol migration
 ```
+
+`Corank1Cal` implements Algorithm 1 only:
+
+```text
+repeat
+    u <-$ F_q^n
+    r <- rank(Phi_U(u))
+until r == n - 1
+
+return u
+```
+
+It must return a nonzero representative `u` satisfying:
+
+```text
+rank(Phi_U(u)) == n - 1
+```
+
+Do not projectively normalize the representative.
+
+The public interface has the precondition:
+
+```text
+1 <= n && n <= MEDS_n
+```
+
+Invalid dimensions and null pointers must be rejected before any VLA declarations.
+
+The implementation must reuse:
+
+```text
+rnd_GF()
+triform_phi_u()
+pmod_mat_rank_vartime()
+```
+
+Do not reimplement field sampling, `Phi_U`, Gaussian elimination, or rank.
+
+The caller owns SHAKE initialization and domain separation. `Corank1Cal` consumes and advances the supplied `keccak_state`; it must not call:
+
+```text
+randombytes()
+rand()
+global RNGs
+```
+
+For valid input, `corank1_cal_vartime()` has no hidden attempt bound. If the input form has no corank-one point, Algorithm 1 does not terminate. A bounded defensive API must be designed separately if it is needed later.
+
+Do not call:
+
+```text
+canonical_build_uvw_vartime()
+canonical_diagonal_normalize_vartime()
+canonical_form_vartime()
+```
+
+Corank1Cal success and CF success are distinct events. The protocol-level loop is:
+
+```text
+repeat
+    a   = Corank1Cal(phi)
+    psi = CF(phi, a)
+until psi succeeds
+```
+
+Do not move that loop into `Corank1Cal`.
+
+Failure semantics:
+
+```text
+0   success
+-1  invalid input
+```
+
+Invalid input must leave caller-provided `out_u` unchanged. Valid input loops until success.
+
+The public contract does not support implicit aliasing:
+
+```text
+out_u must not overlap M
+```
+
+Do not connect `Corank1Cal` to:
+
+```text
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen
+Sign
+Verify
+```
+
+Tests for this phase belong only on a dedicated test branch under:
+
+```text
+tests/corank1_cal/**
+```
+
+and must not add test hooks or `#ifdef TESTING` to production code.
+
+---
+
+# Canonical Form (CF) implementation constraints
+
+`CF` is implemented in the canonical-form layer.
 
 `CF` is strictly a thin composition layer:
 
@@ -912,7 +1030,7 @@ The public interface has the precondition:
 5 <= n && n <= MEDS_n
 ```
 
-because complete CF calls `DiagonalNormalize`, which uses `M5`, `g3`, and `h5`. Invalid dimensions and null pointers must be rejected before any VLA declarations.
+because complete CF calls `DiagonalNormalize`, which uses `M5`, `g3`, and `h5`.
 
 The implementation must reuse:
 
@@ -923,39 +1041,9 @@ canonical_diagonal_normalize_vartime()
 
 Do not add extra rank, kernel, action, anchor, normalization, or invertibility checks in `canonical_form_vartime()`. Those responsibilities belong to the two lower stages.
 
-Failure semantics:
+Any failure must leave caller-provided `out` unchanged.
 
-```text
-0   success
--1  invalid input, BuildUVW failure, or DiagonalNormalize failure
-```
-
-Any failure must leave caller-provided `out` unchanged. `BuildUVW` writes only local `U`, `V`, and `W`; `DiagonalNormalize` already preserves `out` on failure.
-
-The public contract does not support implicit aliasing:
-
-```text
-out, M, and u1 must not overlap
-```
-
-Do not connect `CF` to:
-
-```text
-crypto_sign_keypair()
-crypto_sign()
-crypto_sign_open()
-KeyGen
-Sign
-Verify
-```
-
-Tests for this phase belong only on a dedicated test branch under:
-
-```text
-tests/canonical_form/**
-```
-
-and must not add test hooks or `#ifdef TESTING` to production code.
+Do not connect `CF` to protocol code directly in low-level phases.
 
 ---
 
