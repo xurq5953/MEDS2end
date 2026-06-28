@@ -14,7 +14,7 @@
 #include "cpucycles.h"
 #include "speed_print.h"
 
-#define DEFAULT_SPEED_ROUNDS 10000
+#define DEFAULT_SPEED_ROUNDS 10
 #define DEFAULT_PROTOCOL_ROUNDS 16
 
 static uint64_t *cycles = NULL;
