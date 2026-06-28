@@ -3,13 +3,52 @@
 
 #include <stdint.h>
 
-#define TRINE_lambda 128
+#define PARAMS 1
 
+#if PARAMS == 1
+#define TRINE_lambda 128
 #define TRINE_n 22
 #define TRINE_q 4093
 #define TRINE_r 138
 #define TRINE_K 52
 #define TRINE_X 1
+#elif PARAMS == 2
+#define TRINE_lambda 256
+#define TRINE_n 40
+#define TRINE_q 4093
+#define TRINE_r 271
+#define TRINE_K 104
+#define TRINE_X 1
+#elif PARAMS == 3
+#define TRINE_lambda 512
+#define TRINE_n 81
+#define TRINE_q 4093
+#define TRINE_r 534
+#define TRINE_K 211
+#define TRINE_X 1
+#elif PARAMS == 4
+#define TRINE_lambda 128
+#define TRINE_n 22
+#define TRINE_q 4093
+#define TRINE_r 61
+#define TRINE_K 36
+#define TRINE_X 4
+#elif PARAMS == 5
+#define TRINE_lambda 256
+#define TRINE_n 40
+#define TRINE_q 4093
+#define TRINE_r 116
+#define TRINE_K 76
+#define TRINE_X 4
+#elif PARAMS == 6
+#define TRINE_lambda 512
+#define TRINE_n 81
+#define TRINE_q 4093
+#define TRINE_r 232
+#define TRINE_K 149
+#define TRINE_X 4
+#endif
+
 
 #define TRINE_q_bits 12
 
