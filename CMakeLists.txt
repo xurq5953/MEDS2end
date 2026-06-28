@@ -35,6 +35,7 @@ set(COMMON_SOURCES
   canonical.c
   corank1.c
   trine_expand.c
+  trine_codec.c
   bitstream.c
   randombytes.c
 )

@@ -30,7 +30,7 @@ TARGETS := ${EXES:%=$(OBJDIR)/%}
 
 default: $(EXES)
 
-OBJECTS = meds.o util.o osfreq.o fips202.o field.o matrixmod.o matrixelim.o triform.o canonical.o corank1.o trine_expand.o bitstream.o randombytes.o
+OBJECTS = meds.o util.o osfreq.o fips202.o field.o matrixmod.o matrixelim.o triform.o canonical.o corank1.o trine_expand.o trine_codec.o bitstream.o randombytes.o
 HEADERS = $(wildcard *.h)
 
 BUILDOBJ := ${OBJECTS:%=$(OBJDIR)/%}
