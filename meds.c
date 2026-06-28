@@ -1,644 +1,652 @@
-#include <stdio.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "log.h"
-
-#include "fips202.h"
-
-#include "params.h"
-
 #include "api.h"
-#include "randombytes.h"
-
-#include "meds.h"
-
-#include "util.h"
-#include "bitstream.h"
-
+#include "canonical.h"
+#include "corank1.h"
+#include "fips202.h"
 #include "matrixmod.h"
+#include "params.h"
+#include "randombytes.h"
+#include "triform.h"
+#include "trine_codec.h"
+#include "trine_expand.h"
+#include "util.h"
 
-static void encode_mat_to_bs(bitstream_t *bs, const Fq *M, int elem_count)
+static const uint8_t TRINE_ROUND_DOMAIN[] =
+    "MEDS2END-TRINE-ROUND-v1";
+
+static void trine_secure_clear(
+    void *ptr,
+    size_t len)
 {
-  for (int j = 0; j < elem_count; j++)
-    bs_write(bs, M[j], Fq_bits);
+  volatile uint8_t *bytes = (volatile uint8_t *)ptr;
 
-  bs_finalize(bs);
+  if (ptr == NULL)
+    return;
+
+  for (size_t i = 0; i < len; i++)
+    bytes[i] = 0;
 }
 
-static void decode_mat_from_bs(bitstream_t *bs, Fq *M, int elem_count)
+static void trine_store_u32_le(
+    uint8_t out[4],
+    uint32_t value)
 {
-  for (int j = 0; j < elem_count; j++)
-    M[j] = bs_read(bs, Fq_bits);
-
-  bs_finalize(bs);
+  out[0] = (uint8_t)(value & 0xffu);
+  out[1] = (uint8_t)((value >> 8) & 0xffu);
+  out[2] = (uint8_t)((value >> 16) & 0xffu);
+  out[3] = (uint8_t)((value >> 24) & 0xffu);
 }
 
-static void derive_round_matrices(
-    Fq *A,
-    Fq *B,
-    Fq *C,
+static void trine_init_round_shake(
+    keccak_state *shake,
     const uint8_t round_seed[MEDS_round_seed_bytes],
-    const uint8_t alpha[MEDS_salt_bytes],
-    uint32_t round_index
-  )
+    const uint8_t salt[MEDS_salt_bytes],
+    uint32_t round_index)
 {
-  uint8_t round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 4];
-  uint8_t sigma_A[MEDS_round_seed_bytes];
-  uint8_t sigma_B[MEDS_round_seed_bytes];
-  uint8_t sigma_C[MEDS_round_seed_bytes];
+  uint8_t round_index_le[4];
 
-  memcpy(round_input, alpha, MEDS_salt_bytes);
-  memcpy(round_input + MEDS_salt_bytes, round_seed, MEDS_round_seed_bytes);
-  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 0] = (uint8_t)(round_index & 0xff);
-  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 1] = (uint8_t)((round_index >> 8) & 0xff);
-  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 2] = (uint8_t)((round_index >> 16) & 0xff);
-  round_input[MEDS_salt_bytes + MEDS_round_seed_bytes + 3] = (uint8_t)((round_index >> 24) & 0xff);
+  trine_store_u32_le(round_index_le, round_index);
 
-  XOF((uint8_t*[]){sigma_A, sigma_B, sigma_C},
-      (size_t[]){MEDS_round_seed_bytes, MEDS_round_seed_bytes, MEDS_round_seed_bytes},
-      round_input, sizeof(round_input),
-      3);
-
-  rnd_inv_matrix(A, MEDS_n, MEDS_n, sigma_A, MEDS_round_seed_bytes);
-  rnd_inv_matrix(B, MEDS_n, MEDS_n, sigma_B, MEDS_round_seed_bytes);
-  rnd_inv_matrix(C, MEDS_n, MEDS_n, sigma_C, MEDS_round_seed_bytes);
+  shake256_init(shake);
+  shake256_absorb(
+      shake,
+      TRINE_ROUND_DOMAIN,
+      sizeof(TRINE_ROUND_DOMAIN) - 1u);
+  shake256_absorb(shake, salt, MEDS_salt_bytes);
+  shake256_absorb(shake, round_seed, MEDS_round_seed_bytes);
+  shake256_absorb(shake, round_index_le, sizeof(round_index_le));
+  shake256_finalize(shake);
 }
 
-static void encode_G_full(uint8_t out[MEDS_G_BYTES], const Fq *G)
+static void *trine_alloc_array(
+    size_t count,
+    size_t element_size)
 {
-  memset(out, 0, MEDS_G_BYTES);
+  if (element_size != 0u && count > SIZE_MAX / element_size)
+    return NULL;
 
-  bitstream_t bs;
-
-  bs_init(&bs, out, MEDS_G_BYTES);
-
-  for (int j = 0; j < MEDS_n * MEDS_n * MEDS_n; j++)
-    bs_write(&bs, G[j], Fq_bits);
-
-  bs_finalize(&bs);
+  return malloc(count * element_size);
 }
 
-static void load_public_key_matrices(Fq *G[MEDS_X], const unsigned char *pk)
+static int trine_message_len_to_size(
+    size_t *out,
+    unsigned long long value)
 {
-  rnd_sys_mat(G[0], MEDS_n, MEDS_n*MEDS_n, pk, MEDS_pub_seed_bytes);
+  if (value > (unsigned long long)SIZE_MAX)
+    return -1;
 
-  bitstream_t bs;
-
-  bs_init(&bs, (uint8_t*)pk + MEDS_pub_seed_bytes, MEDS_PK_BYTES - MEDS_pub_seed_bytes);
-
-  for (int si = 1; si < MEDS_X; si++)
-  {
-    for (int j = 0; j < MEDS_n * MEDS_n * MEDS_n; j++)
-      G[si][j] = bs_read(&bs, Fq_bits);
-
-    bs_finalize(&bs);
-  }
+  *out = (size_t)value;
+  return 0;
 }
 
-static void load_secret_key_matrices(
-    Fq *A_inv[MEDS_X],
-    Fq *B_inv[MEDS_X],
-    Fq *C_inv[MEDS_X],
-    const unsigned char *sk_body
-  )
+static int trine_challenges_valid(
+    const trine_challenge_t challenges[MEDS_r])
 {
-  bitstream_t bs;
+  size_t nonbase_count = 0;
+  size_t base_count = 0;
 
-  bs_init(&bs, (uint8_t*)sk_body, MEDS_SK_BYTES - MEDS_sec_seed_bytes - MEDS_pub_seed_bytes);
-
-  for (int si = 1; si < MEDS_X; si++)
+  for (int i = 0; i < MEDS_r; i++)
   {
-    for (int j = 0; j < MEDS_n*MEDS_n; j++)
-      A_inv[si][j] = bs_read(&bs, Fq_bits);
-
-    bs_finalize(&bs);
+    if (challenges[i] < MEDS_X)
+      nonbase_count++;
+    else if (challenges[i] == MEDS_BASE_FORM_INDEX)
+      base_count++;
+    else
+      return 0;
   }
 
-  for (int si = 1; si < MEDS_X; si++)
+  return nonbase_count == MEDS_K &&
+         base_count == TRINE_BASE_SEED_COUNT;
+}
+
+static int trine_challenges_equal(
+    const trine_challenge_t a[MEDS_r],
+    const trine_challenge_t b[MEDS_r])
+{
+  for (int i = 0; i < MEDS_r; i++)
+    if (a[i] != b[i])
+      return 0;
+
+  return 1;
+}
+
+static int trine_absorb_canonical_form(
+    keccak_state *transcript,
+    uint8_t *encoded_buffer,
+    const Fq *psi)
+{
+  if (trine_codec_encode_triform(
+          encoded_buffer,
+          TRINE_TRIFORM_BYTES,
+          psi,
+          MEDS_n) != 0)
+    return -1;
+
+  shake256_absorb(transcript, encoded_buffer, TRINE_TRIFORM_BYTES);
+  return 0;
+}
+
+static int trine_derive_round_commitment_vartime(
+    Fq *out_a,
+    Fq *out_psi,
+    const Fq *base_form,
+    const uint8_t round_seed[MEDS_round_seed_bytes],
+    const uint8_t salt[MEDS_salt_bytes],
+    uint32_t round_index)
+{
+  if (out_psi == NULL ||
+      base_form == NULL ||
+      round_seed == NULL ||
+      salt == NULL)
+    return -1;
+
+  keccak_state shake;
+  Fq a_tmp[MEDS_n];
+
+  trine_init_round_shake(&shake, round_seed, salt, round_index);
+
+  for (;;)
   {
-    for (int j = 0; j < MEDS_n*MEDS_n; j++)
-      B_inv[si][j] = bs_read(&bs, Fq_bits);
+    if (corank1_cal_vartime(a_tmp, base_form, &shake, MEDS_n) != 0)
+      return -1;
 
-    bs_finalize(&bs);
-  }
+    if (canonical_form_vartime(out_psi, base_form, a_tmp, MEDS_n) == 0)
+    {
+      if (out_a != NULL)
+        memcpy(out_a, a_tmp, sizeof(a_tmp));
 
-  for (int si = 1; si < MEDS_X; si++)
-  {
-    for (int j = 0; j < MEDS_n*MEDS_n; j++)
-      C_inv[si][j] = bs_read(&bs, Fq_bits);
-
-    bs_finalize(&bs);
+      trine_secure_clear(a_tmp, sizeof(a_tmp));
+      return 0;
+    }
   }
 }
 
 int crypto_sign_keypair(
     unsigned char *pk,
-    unsigned char *sk
-  )
+    unsigned char *sk)
 {
-  uint8_t delta[MEDS_sec_seed_bytes];
+  int result = -1;
+  uint8_t secret_seed[MEDS_sec_seed_bytes] = {0};
+  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
+  uint8_t sk_tmp[TRINE_SK_BYTES] = {0};
+  const size_t form_elements = triform_element_count(MEDS_n);
 
-  randombytes(delta, MEDS_sec_seed_bytes);
+  Fq *base_form = NULL;
+  Fq *nonbase_forms = NULL;
+  uint8_t *pk_tmp = NULL;
+  Fq A[MEDS_n * MEDS_n];
+  Fq B[MEDS_n * MEDS_n];
+  Fq C[MEDS_n * MEDS_n];
 
+  if (pk == NULL || sk == NULL)
+    goto cleanup;
 
-  Fq G_data[MEDS_n * MEDS_n * MEDS_n * MEDS_X];
-  Fq *G[MEDS_X];
+  base_form = trine_alloc_array(form_elements, sizeof(*base_form));
+  nonbase_forms = trine_alloc_array(
+      (size_t)MEDS_X * form_elements,
+      sizeof(*nonbase_forms));
+  pk_tmp = trine_alloc_array(TRINE_PK_BYTES, sizeof(*pk_tmp));
 
-  for (int i = 0; i < MEDS_X; i++)
-    G[i] = &G_data[i * MEDS_n * MEDS_n * MEDS_n];
+  if (base_form == NULL ||
+      nonbase_forms == NULL ||
+      pk_tmp == NULL)
+    goto cleanup;
 
-  uint8_t sigma_G0[MEDS_pub_seed_bytes];
-  uint8_t sigma[MEDS_sec_seed_bytes];
+  if (randombytes(secret_seed, sizeof(secret_seed)) != RNG_SUCCESS)
+    goto cleanup;
 
-  XOF((uint8_t*[]){sigma_G0, sigma},
-       (size_t[]){MEDS_pub_seed_bytes, MEDS_sec_seed_bytes},
-       delta, MEDS_sec_seed_bytes,
-       2);
+  if (trine_expand_public_seed(public_seed, secret_seed) != 0)
+    goto cleanup;
 
-  LOG_VEC(sigma, MEDS_sec_seed_bytes);
-  LOG_VEC_FMT(sigma_G0, MEDS_pub_seed_bytes, "sigma_G0");
+  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+    goto cleanup;
 
-
-  rnd_sys_mat(G[0], MEDS_n, MEDS_n*MEDS_n, sigma_G0, MEDS_pub_seed_bytes);
-
-  LOG_MAT(G[0], MEDS_n, MEDS_n*MEDS_n);
-
-  Fq A_inv_data[MEDS_X * MEDS_n * MEDS_n];
-  Fq B_inv_data[MEDS_X * MEDS_n * MEDS_n];
-  Fq C_inv_data[MEDS_X * MEDS_n * MEDS_n];
-
-  Fq *A_inv[MEDS_X];
-  Fq *B_inv[MEDS_X];
-  Fq *C_inv[MEDS_X];
-
-  for (int i = 0; i < MEDS_X; i++)
+  for (uint32_t i = 0; i < (uint32_t)MEDS_X; i++)
   {
-    A_inv[i] = &A_inv_data[i * MEDS_n * MEDS_n];
-    B_inv[i] = &B_inv_data[i * MEDS_n * MEDS_n];
-    C_inv[i] = &C_inv_data[i * MEDS_n * MEDS_n];
+    if (trine_expand_secret_matrix_pair_vartime(
+            A, NULL, secret_seed, TRINE_MATRIX_A, i, MEDS_n) != 0)
+      goto cleanup;
+
+    if (trine_expand_secret_matrix_pair_vartime(
+            B, NULL, secret_seed, TRINE_MATRIX_B, i, MEDS_n) != 0)
+      goto cleanup;
+
+    if (trine_expand_secret_matrix_pair_vartime(
+            C, NULL, secret_seed, TRINE_MATRIX_C, i, MEDS_n) != 0)
+      goto cleanup;
+
+    triform_action_pullback(
+        nonbase_forms + (size_t)i * form_elements,
+        base_form,
+        A,
+        B,
+        C,
+        MEDS_n);
   }
 
-  for (int i = 1; i < MEDS_X; i++)
-  {
-    Fq A[MEDS_n * MEDS_n] = {0};
-    Fq B[MEDS_n * MEDS_n] = {0};
-    Fq C[MEDS_n * MEDS_n] = {0};
+  if (trine_codec_encode_public_key(
+          pk_tmp,
+          TRINE_PK_BYTES,
+          public_seed,
+          nonbase_forms) != 0)
+    goto cleanup;
 
-    while (1 == 1) // redo generation for this index until success
-    {
-      uint8_t sigma_Ai[MEDS_sec_seed_bytes];
-      uint8_t sigma_Bi[MEDS_sec_seed_bytes];
-      uint8_t sigma_Ci[MEDS_sec_seed_bytes];
+  if (trine_codec_encode_secret_key(
+          sk_tmp,
+          sizeof(sk_tmp),
+          secret_seed) != 0)
+    goto cleanup;
 
-      XOF((uint8_t*[]){sigma_Ai, sigma_Bi, sigma_Ci, sigma},
-          (size_t[]){MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes, MEDS_sec_seed_bytes},
-          sigma, MEDS_sec_seed_bytes,
-          4);
+  memcpy(pk, pk_tmp, TRINE_PK_BYTES);
+  memcpy(sk, sk_tmp, TRINE_SK_BYTES);
+  result = 0;
 
-      rnd_inv_matrix(A, MEDS_n, MEDS_n, sigma_Ai, MEDS_sec_seed_bytes);
-      rnd_inv_matrix(B, MEDS_n, MEDS_n, sigma_Bi, MEDS_sec_seed_bytes);
-      rnd_inv_matrix(C, MEDS_n, MEDS_n, sigma_Ci, MEDS_sec_seed_bytes);
-
-      if (pmod_mat_inv(A_inv[i], A, MEDS_n, MEDS_n) < 0)
-      {
-        LOG("no inv A_inv");
-        continue;
-      }
-
-      if (pmod_mat_inv(B_inv[i], B, MEDS_n, MEDS_n) < 0)
-      {
-        LOG("no inv B_inv");
-        continue;
-      }
-
-      if (pmod_mat_inv(C_inv[i], C, MEDS_n, MEDS_n) < 0)
-      {
-        LOG("no inv C_inv");
-        continue;
-      }
-
-      LOG_MAT_FMT(A, MEDS_n, MEDS_n, "A[%i]", i);
-      LOG_MAT_FMT(A_inv[i], MEDS_n, MEDS_n, "A_inv[%i]", i);
-      LOG_MAT_FMT(B, MEDS_n, MEDS_n, "B[%i]", i);
-      LOG_MAT_FMT(B_inv[i], MEDS_n, MEDS_n, "B_inv[%i]", i);
-      LOG_MAT_FMT(C, MEDS_n, MEDS_n, "C[%i]", i);
-      LOG_MAT_FMT(C_inv[i], MEDS_n, MEDS_n, "C_inv[%i]", i);
-
-
-      phi(G[i], A, B, C, G[0]);
-
-      LOG_MAT_FMT(G[i], MEDS_n, MEDS_n*MEDS_n, "G[%i]", i);
-
-      // successfull generated G[s]; break out of while loop
-      break;
-    }
-  }
-
-
-  // copy pk data
-  {
-    uint8_t *tmp_pk = pk;
-
-    memcpy(tmp_pk, sigma_G0, MEDS_pub_seed_bytes);
-    LOG_VEC(tmp_pk, MEDS_pub_seed_bytes, "sigma_G0 (pk)");
-    tmp_pk += MEDS_pub_seed_bytes;
-
-    bitstream_t bs;
-
-    bs_init(&bs, tmp_pk, MEDS_PK_BYTES - MEDS_pub_seed_bytes);
-
-    for (int si = 1; si < MEDS_X; si++)
-    {
-      for (int j = 0; j < MEDS_n * MEDS_n * MEDS_n; j++)
-        bs_write(&bs, G[si][j], Fq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    LOG_VEC(tmp_pk, MEDS_PK_BYTES - MEDS_pub_seed_bytes, "G[1:] (pk)");
-    tmp_pk += MEDS_PK_BYTES - MEDS_pub_seed_bytes;
-
-    LOG_HEX(pk, MEDS_PK_BYTES);
-
-    if (MEDS_PK_BYTES != MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0))
-    {
-      fprintf(stderr, "ERROR: MEDS_PK_BYTES and actual pk size do not match! %i vs %i\n", MEDS_PK_BYTES, MEDS_pub_seed_bytes + bs.byte_pos+(bs.bit_pos > 0 ? 1 : 0));
-      fprintf(stderr, "%i %i\n", MEDS_pub_seed_bytes + bs.byte_pos, MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0));
-      return -1;
-    }
-  }
-
-  // copy sk data
-  {
-    memcpy(sk, delta, MEDS_sec_seed_bytes);
-    memcpy(sk + MEDS_sec_seed_bytes, sigma_G0, MEDS_pub_seed_bytes);
-
-    bitstream_t bs;
-
-    bs_init(&bs, sk + MEDS_sec_seed_bytes + MEDS_pub_seed_bytes, MEDS_SK_BYTES - MEDS_sec_seed_bytes - MEDS_pub_seed_bytes);
-
-    for (int si = 1; si < MEDS_X; si++)
-    {
-      for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        bs_write(&bs, A_inv[si][j], Fq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    for (int si = 1; si < MEDS_X; si++)
-    {
-      for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        bs_write(&bs, B_inv[si][j], Fq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    for (int si = 1; si < MEDS_X; si++)
-    {
-      for (int j = 0; j < MEDS_n*MEDS_n; j++)
-        bs_write(&bs, C_inv[si][j], Fq_bits);
-
-      bs_finalize(&bs);
-    }
-
-    if (MEDS_SK_BYTES != MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0))
-    {
-      fprintf(stderr, "ERROR: MEDS_SK_BYTES and actual sk size do not match! %i vs %i\n", MEDS_SK_BYTES, MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos+(bs.bit_pos > 0 ? 1 : 0));
-      fprintf(stderr, "%i %i\n", MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos, MEDS_sec_seed_bytes + MEDS_pub_seed_bytes + bs.byte_pos + (bs.bit_pos > 0 ? 1 : 0));
-      return -1;
-    }
-
-    LOG_HEX(sk, MEDS_SK_BYTES);
-  }
-
-  return 0;
+cleanup:
+  trine_secure_clear(secret_seed, sizeof(secret_seed));
+  trine_secure_clear(sk_tmp, sizeof(sk_tmp));
+  trine_secure_clear(A, sizeof(A));
+  trine_secure_clear(B, sizeof(B));
+  trine_secure_clear(C, sizeof(C));
+  free(base_form);
+  free(nonbase_forms);
+  free(pk_tmp);
+  return result;
 }
 
 int crypto_sign(
-    unsigned char *sm, unsigned long long *smlen,
-    const unsigned char *m, unsigned long long mlen,
-    const unsigned char *sk
-  )
+    unsigned char *sm,
+    unsigned long long *smlen,
+    const unsigned char *m,
+    unsigned long long mlen,
+    const unsigned char *sk)
 {
-  uint8_t delta[MEDS_sec_seed_bytes];
+  int result = -1;
+  size_t message_len = 0;
+  uint8_t secret_seed[MEDS_sec_seed_bytes] = {0};
+  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
+  uint8_t digest[MEDS_digest_bytes] = {0};
+  uint8_t salt[MEDS_salt_bytes] = {0};
+  trine_challenge_t challenges[MEDS_r];
+  const size_t form_elements = triform_element_count(MEDS_n);
+  const size_t matrix_elements = (size_t)MEDS_n * (size_t)MEDS_n;
+  const size_t response_elements = (size_t)MEDS_K * (size_t)MEDS_n;
 
-  randombytes(delta, MEDS_sec_seed_bytes);
+  Fq *base_form = NULL;
+  Fq *a_all = NULL;
+  Fq *a_inverse_cache = NULL;
+  Fq *responses = NULL;
+  Fq *psi = NULL;
+  uint8_t *a_inverse_ready = NULL;
+  uint8_t *round_seeds = NULL;
+  uint8_t *base_seeds = NULL;
+  uint8_t *encoded_psi = NULL;
+  uint8_t *signature_tmp = NULL;
 
+  if (smlen != NULL)
+    *smlen = 0;
 
-  // skip secret seed
-  sk += MEDS_sec_seed_bytes;
+  if (sm == NULL || smlen == NULL || sk == NULL)
+    goto cleanup;
 
-  Fq G_0[MEDS_n * MEDS_n * MEDS_n];
+  if (m == NULL && mlen != 0u)
+    goto cleanup;
 
+  if (trine_message_len_to_size(&message_len, mlen) != 0)
+    goto cleanup;
 
-  rnd_sys_mat(G_0, MEDS_n, MEDS_n*MEDS_n, sk, MEDS_pub_seed_bytes);
+  if (mlen > ULLONG_MAX - (unsigned long long)TRINE_SIG_BYTES)
+    goto cleanup;
 
-  sk += MEDS_pub_seed_bytes;
+  if (trine_codec_decode_secret_key(secret_seed, sk, TRINE_SK_BYTES) != 0)
+    goto cleanup;
 
+  base_form = trine_alloc_array(form_elements, sizeof(*base_form));
+  a_all = trine_alloc_array((size_t)MEDS_r * (size_t)MEDS_n, sizeof(*a_all));
+  a_inverse_cache = trine_alloc_array(
+      (size_t)MEDS_X * matrix_elements,
+      sizeof(*a_inverse_cache));
+  a_inverse_ready = calloc((size_t)MEDS_X, sizeof(*a_inverse_ready));
+  responses = trine_alloc_array(response_elements, sizeof(*responses));
+  psi = trine_alloc_array(form_elements, sizeof(*psi));
+  round_seeds = trine_alloc_array(
+      (size_t)MEDS_r * (size_t)MEDS_round_seed_bytes,
+      sizeof(*round_seeds));
+  base_seeds = trine_alloc_array(TRINE_BASE_SEED_BYTES, sizeof(*base_seeds));
+  encoded_psi = trine_alloc_array(TRINE_TRIFORM_BYTES, sizeof(*encoded_psi));
+  signature_tmp = trine_alloc_array(TRINE_SIG_BYTES, sizeof(*signature_tmp));
 
-  Fq A_inv_data[MEDS_X * MEDS_n * MEDS_n];
-  Fq B_inv_data[MEDS_X * MEDS_n * MEDS_n];
-  Fq C_inv_data[MEDS_X * MEDS_n * MEDS_n];
+  if (base_form == NULL ||
+      a_all == NULL ||
+      a_inverse_cache == NULL ||
+      a_inverse_ready == NULL ||
+      responses == NULL ||
+      psi == NULL ||
+      round_seeds == NULL ||
+      base_seeds == NULL ||
+      encoded_psi == NULL ||
+      signature_tmp == NULL)
+    goto cleanup;
 
-  Fq *A_inv[MEDS_X];
-  Fq *B_inv[MEDS_X];
-  Fq *C_inv[MEDS_X];
+  if (trine_expand_public_seed(public_seed, secret_seed) != 0)
+    goto cleanup;
 
-  for (int i = 0; i < MEDS_X; i++)
+  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+    goto cleanup;
+
+  if (randombytes(salt, sizeof(salt)) != RNG_SUCCESS)
+    goto cleanup;
+
+  if (randombytes(
+          round_seeds,
+          (unsigned long long)MEDS_r * MEDS_round_seed_bytes) != RNG_SUCCESS)
+    goto cleanup;
+
+  keccak_state transcript;
+  shake256_init(&transcript);
+  if (message_len != 0u)
+    shake256_absorb(&transcript, m, message_len);
+
+  for (int round = 0; round < MEDS_r; round++)
   {
-    A_inv[i] = &A_inv_data[i * MEDS_n * MEDS_n];
-    B_inv[i] = &B_inv_data[i * MEDS_n * MEDS_n];
-    C_inv[i] = &C_inv_data[i * MEDS_n * MEDS_n];
+    uint8_t *round_seed =
+        round_seeds + (size_t)round * (size_t)MEDS_round_seed_bytes;
+    Fq *round_a = a_all + (size_t)round * (size_t)MEDS_n;
+
+    if (trine_derive_round_commitment_vartime(
+            round_a,
+            psi,
+            base_form,
+            round_seed,
+            salt,
+            (uint32_t)round) != 0)
+      goto cleanup;
+
+    if (trine_absorb_canonical_form(&transcript, encoded_psi, psi) != 0)
+      goto cleanup;
   }
 
-  load_secret_key_matrices(A_inv, B_inv, C_inv, sk);
+  shake256_finalize(&transcript);
+  shake256_squeeze(digest, sizeof(digest), &transcript);
 
+  if (trine_parse_hash(
+          digest,
+          sizeof(digest),
+          challenges,
+          MEDS_r) != 0)
+    goto cleanup;
 
-  for (int i = 1; i < MEDS_X; i++)
-    LOG_MAT(A_inv[i], MEDS_n, MEDS_n);
+  if (!trine_challenges_valid(challenges))
+    goto cleanup;
 
-  for (int i = 1; i < MEDS_X; i++)
-    LOG_MAT(B_inv[i], MEDS_n, MEDS_n);
+  size_t response_index = 0;
+  size_t base_seed_index = 0;
 
-  for (int i = 1; i < MEDS_X; i++)
-    LOG_MAT(C_inv[i], MEDS_n, MEDS_n);
-
-  LOG_MAT(G_0, MEDS_n, MEDS_n*MEDS_n);
-
-  LOG_VEC(delta, MEDS_sec_seed_bytes);
-
-
-  uint8_t alpha[MEDS_salt_bytes];
-  uint8_t round_seeds[MEDS_r][MEDS_round_seed_bytes];
-
-  XOF((uint8_t*[]){alpha, (uint8_t*)round_seeds},
-      (size_t[]){MEDS_salt_bytes, MEDS_r * MEDS_round_seed_bytes},
-      delta, MEDS_sec_seed_bytes,
-      2);
-
-
-  Fq A_tilde_data[MEDS_r * MEDS_n * MEDS_n];
-  Fq B_tilde_data[MEDS_r * MEDS_n * MEDS_n];
-  Fq C_tilde_data[MEDS_r * MEDS_n * MEDS_n];
-
-  Fq *A_tilde[MEDS_r];
-  Fq *B_tilde[MEDS_r];
-  Fq *C_tilde[MEDS_r];
-
-  for (int i = 0; i < MEDS_r; i++)
+  for (int round = 0; round < MEDS_r; round++)
   {
-    A_tilde[i] = &A_tilde_data[i * MEDS_n * MEDS_n];
-    B_tilde[i] = &B_tilde_data[i * MEDS_n * MEDS_n];
-    C_tilde[i] = &C_tilde_data[i * MEDS_n * MEDS_n];
-  }
+    const trine_challenge_t challenge = challenges[round];
 
-  keccak_state h_shake;
-  shake256_init(&h_shake);
-
-  for (int i = 0; i < MEDS_r; i++)
-  {
-    Fq G_tilde_ti[MEDS_n * MEDS_n * MEDS_n];
-
-    derive_round_matrices(A_tilde[i], B_tilde[i], C_tilde[i], round_seeds[i], alpha, (uint32_t)i);
-
-    LOG_MAT_FMT(A_tilde[i], MEDS_n, MEDS_n, "A_tilde[%i]", i);
-    LOG_MAT_FMT(B_tilde[i], MEDS_n, MEDS_n, "B_tilde[%i]", i);
-    LOG_MAT_FMT(C_tilde[i], MEDS_n, MEDS_n, "C_tilde[%i]", i);
-
-
-    phi(G_tilde_ti, A_tilde[i], B_tilde[i], C_tilde[i], G_0);
-
-
-    LOG_MAT_FMT(G_tilde_ti, MEDS_n, MEDS_n*MEDS_n, "G_tilde[%i]", i);
-
-    uint8_t bs_buf[MEDS_G_BYTES];
-
-    encode_G_full(bs_buf, G_tilde_ti);
-    shake256_absorb(&h_shake, bs_buf, MEDS_G_BYTES);
-  }
-
-  shake256_absorb(&h_shake, (uint8_t*)m, mlen);
-
-  shake256_finalize(&h_shake);
-
-  uint8_t digest[MEDS_digest_bytes];
-
-  shake256_squeeze(digest, MEDS_digest_bytes, &h_shake);
-
-  LOG_VEC(digest, MEDS_digest_bytes);
-
-
-  uint8_t h[MEDS_r];
-
-  parse_hash(digest, MEDS_digest_bytes, h, MEDS_r);
-
-  LOG_VEC(h, MEDS_t);
-
-
-  memset(sm, 0, MEDS_SIG_BYTES);
-
-  bitstream_t bs;
-
-  bs_init(&bs, sm, MEDS_RESPONSE_BYTES);
-
-  size_t response_count = 0;
-
-  for (int i = 0; i < MEDS_r; i++)
-  {
-    if (h[i] > 0)
+    if (challenge < MEDS_X)
     {
-      Fq mu[MEDS_n*MEDS_n];
-      Fq nu[MEDS_n*MEDS_n];
-      Fq eta[MEDS_n*MEDS_n];
+      const size_t matrix_offset = (size_t)challenge * matrix_elements;
+      Fq *response = responses + response_index * (size_t)MEDS_n;
+      const Fq *round_a = a_all + (size_t)round * (size_t)MEDS_n;
 
-      pmod_mat_mul(mu, A_tilde[i], A_inv[h[i]], MEDS_n);
-      pmod_mat_mul(nu, B_inv[h[i]], B_tilde[i], MEDS_n);
-      pmod_mat_mul(eta, C_tilde[i], C_inv[h[i]], MEDS_n);
+      if (!a_inverse_ready[challenge])
+      {
+        if (trine_expand_secret_matrix_pair_vartime(
+                NULL,
+                a_inverse_cache + matrix_offset,
+                secret_seed,
+                TRINE_MATRIX_A,
+                challenge,
+                MEDS_n) != 0)
+          goto cleanup;
 
-      LOG_MAT(mu, MEDS_n, MEDS_n);
-      LOG_MAT(nu, MEDS_n, MEDS_n);
-      LOG_MAT(eta, MEDS_n, MEDS_n);
+        a_inverse_ready[challenge] = 1;
+      }
 
-      encode_mat_to_bs(&bs, mu, MEDS_n*MEDS_n);
-      encode_mat_to_bs(&bs, nu, MEDS_n*MEDS_n);
-      encode_mat_to_bs(&bs, eta, MEDS_n*MEDS_n);
-
-      response_count++;
+      pmod_mat_vec_mul(
+          response,
+          a_inverse_cache + matrix_offset,
+          round_a,
+          MEDS_n);
+      response_index++;
     }
-  }
-
-  if (response_count != MEDS_K || bs.byte_pos != MEDS_RESPONSE_BYTES || bs.bit_pos != 0)
-    return -1;
-
-  uint8_t *seed_out = sm + MEDS_ZERO_SEED_OFFSET;
-  size_t zero_seed_count = 0;
-
-  for (int i = 0; i < MEDS_r; i++)
-  {
-    if (h[i] == 0)
+    else if (challenge == MEDS_BASE_FORM_INDEX)
     {
-      memcpy(seed_out, round_seeds[i], MEDS_round_seed_bytes);
-      seed_out += MEDS_round_seed_bytes;
-      zero_seed_count++;
-    }
-  }
-
-  if (zero_seed_count != MEDS_ZERO_SEED_COUNT || seed_out != sm + MEDS_DIGEST_OFFSET)
-    return -1;
-
-  memcpy(sm + MEDS_DIGEST_OFFSET, digest, MEDS_digest_bytes);
-  memcpy(sm + MEDS_SALT_OFFSET, alpha, MEDS_salt_bytes);
-  memcpy(sm + MEDS_SIG_BYTES, m, mlen);
-
-  *smlen = MEDS_SIG_BYTES + mlen;
-
-  LOG_HEX(sm, MEDS_SIG_BYTES + mlen);
-
-  return 0;
-}
-
-int crypto_sign_open(
-    unsigned char *m, unsigned long long *mlen,
-    const unsigned char *sm, unsigned long long smlen,
-    const unsigned char *pk
-  )
-{
-  LOG_HEX(sm, smlen);
-
-  if (smlen < MEDS_SIG_BYTES)
-    return -1;
-
-  Fq G_data[MEDS_n*MEDS_n*MEDS_n * MEDS_X];
-  Fq *G[MEDS_X];
-
-  for (int i = 0; i < MEDS_X; i++)
-    G[i] = &G_data[i * MEDS_n * MEDS_n * MEDS_n];
-
-
-  load_public_key_matrices(G, pk);
-
-  for (int i = 0; i < MEDS_X; i++)
-    LOG_MAT_FMT(G[i], MEDS_n, MEDS_n*MEDS_n, "G[%i]", i);
-
-  const uint8_t *digest = sm + MEDS_DIGEST_OFFSET;
-
-  const uint8_t *alpha = sm + MEDS_SALT_OFFSET;
-
-  LOG_VEC(digest, MEDS_digest_bytes);
-
-  uint8_t h[MEDS_r];
-
-  parse_hash(digest, MEDS_digest_bytes, h, MEDS_r);
-
-
-  bitstream_t bs;
-
-  bs_init(&bs, (uint8_t*)sm, MEDS_RESPONSE_BYTES);
-
-  const uint8_t *seed_in = sm + MEDS_ZERO_SEED_OFFSET;
-  size_t response_count = 0;
-  size_t zero_seed_count = 0;
-
-  Fq G_hat_i[MEDS_n*MEDS_n*MEDS_n];
-
-  Fq mu[MEDS_n*MEDS_n];
-  Fq nu[MEDS_n*MEDS_n];
-  Fq eta[MEDS_n*MEDS_n];
-
-  keccak_state shake;
-  shake256_init(&shake);
-
-  for (int i = 0; i < MEDS_r; i++)
-  {
-    if (h[i] > 0)
-    {
-      decode_mat_from_bs(&bs, mu, MEDS_n*MEDS_n);
-      decode_mat_from_bs(&bs, nu, MEDS_n*MEDS_n);
-      decode_mat_from_bs(&bs, eta, MEDS_n*MEDS_n);
-
-
-      LOG_MAT_FMT(mu, MEDS_n, MEDS_n, "mu[%i]", i);
-      LOG_MAT_FMT(nu, MEDS_n, MEDS_n, "nu[%i]", i);
-      LOG_MAT_FMT(eta, MEDS_n, MEDS_n, "eta[%i]", i);
-
-
-      Fq inv_mu[MEDS_n*MEDS_n];
-      Fq inv_nu[MEDS_n*MEDS_n];
-      Fq inv_eta[MEDS_n*MEDS_n];
-
-      if (pmod_mat_inv(inv_mu, mu, MEDS_n, MEDS_n) < 0)
-        return -1;
-
-      if (pmod_mat_inv(inv_nu, nu, MEDS_n, MEDS_n) < 0)
-        return -1;
-
-      if (pmod_mat_inv(inv_eta, eta, MEDS_n, MEDS_n) < 0)
-        return -1;
-
-
-      phi(G_hat_i, mu, nu, eta, G[h[i]]);
-
-      LOG_MAT_FMT(G_hat_i, MEDS_n, MEDS_n*MEDS_n, "G_hat[%i]", i);
-
-      response_count++;
+      memcpy(
+          base_seeds + base_seed_index * (size_t)MEDS_round_seed_bytes,
+          round_seeds + (size_t)round * (size_t)MEDS_round_seed_bytes,
+          MEDS_round_seed_bytes);
+      base_seed_index++;
     }
     else
     {
-      LOG_VEC_FMT(seed_in, MEDS_round_seed_bytes, "seeds[%i]", i);
+      goto cleanup;
+    }
+  }
 
-      Fq A_tilde[MEDS_n*MEDS_n];
-      Fq B_tilde[MEDS_n*MEDS_n];
-      Fq C_tilde[MEDS_n*MEDS_n];
+  if (response_index != MEDS_K ||
+      base_seed_index != TRINE_BASE_SEED_COUNT)
+    goto cleanup;
 
-      derive_round_matrices(A_tilde, B_tilde, C_tilde, seed_in, alpha, (uint32_t)i);
+  if (trine_codec_encode_signature(
+          signature_tmp,
+          TRINE_SIG_BYTES,
+          responses,
+          base_seeds,
+          digest,
+          salt) != 0)
+    goto cleanup;
 
-      LOG_MAT_FMT(A_tilde, MEDS_n, MEDS_n, "A_tilde[%i]", i);
-      LOG_MAT_FMT(B_tilde, MEDS_n, MEDS_n, "B_tilde[%i]", i);
-      LOG_MAT_FMT(C_tilde, MEDS_n, MEDS_n, "C_tilde[%i]", i);
+  if (message_len != 0u)
+    memmove(sm + TRINE_SIG_BYTES, m, message_len);
+  memcpy(sm, signature_tmp, TRINE_SIG_BYTES);
+  *smlen = (unsigned long long)TRINE_SIG_BYTES + mlen;
+  result = 0;
 
+cleanup:
+  trine_secure_clear(secret_seed, sizeof(secret_seed));
+  trine_secure_clear(digest, sizeof(digest));
+  trine_secure_clear(salt, sizeof(salt));
+  trine_secure_clear(a_all, (size_t)MEDS_r * (size_t)MEDS_n * sizeof(*a_all));
+  trine_secure_clear(
+      a_inverse_cache,
+      (size_t)MEDS_X * matrix_elements * sizeof(*a_inverse_cache));
+  trine_secure_clear(responses, response_elements * sizeof(*responses));
+  trine_secure_clear(round_seeds, (size_t)MEDS_r * MEDS_round_seed_bytes);
+  trine_secure_clear(base_seeds, TRINE_BASE_SEED_BYTES);
+  trine_secure_clear(signature_tmp, TRINE_SIG_BYTES);
+  free(base_form);
+  free(a_all);
+  free(a_inverse_cache);
+  free(a_inverse_ready);
+  free(responses);
+  free(psi);
+  free(round_seeds);
+  free(base_seeds);
+  free(encoded_psi);
+  free(signature_tmp);
+  return result;
+}
 
-      phi(G_hat_i, A_tilde, B_tilde, C_tilde, G[0]);
+int crypto_sign_open(
+    unsigned char *m,
+    unsigned long long *mlen,
+    const unsigned char *sm,
+    unsigned long long smlen,
+    const unsigned char *pk)
+{
+  int result = -1;
+  size_t message_len = 0;
+  uint8_t public_seed[MEDS_pub_seed_bytes] = {0};
+  uint8_t digest[MEDS_digest_bytes] = {0};
+  uint8_t digest_check[MEDS_digest_bytes] = {0};
+  uint8_t salt[MEDS_salt_bytes] = {0};
+  trine_challenge_t challenges[MEDS_r];
+  trine_challenge_t challenges_check[MEDS_r];
+  const size_t form_elements = triform_element_count(MEDS_n);
+  const size_t response_elements = (size_t)MEDS_K * (size_t)MEDS_n;
 
-      LOG_MAT_FMT(G_hat_i, MEDS_n, MEDS_n*MEDS_n, "G_hat[%i]", i);
+  Fq *base_form = NULL;
+  Fq *nonbase_forms = NULL;
+  Fq *responses = NULL;
+  Fq *psi = NULL;
+  uint8_t *base_seeds = NULL;
+  uint8_t *encoded_psi = NULL;
 
-      seed_in += MEDS_round_seed_bytes;
-      zero_seed_count++;
+  if (mlen != NULL)
+    *mlen = 0;
+
+  if (m == NULL || mlen == NULL || sm == NULL || pk == NULL)
+    goto cleanup;
+
+  if (smlen < TRINE_SIG_BYTES)
+    goto cleanup;
+
+  if (trine_message_len_to_size(
+          &message_len,
+          smlen - (unsigned long long)TRINE_SIG_BYTES) != 0)
+    goto cleanup;
+
+  base_form = trine_alloc_array(form_elements, sizeof(*base_form));
+  nonbase_forms = trine_alloc_array(
+      (size_t)MEDS_X * form_elements,
+      sizeof(*nonbase_forms));
+  responses = trine_alloc_array(response_elements, sizeof(*responses));
+  base_seeds = trine_alloc_array(TRINE_BASE_SEED_BYTES, sizeof(*base_seeds));
+  psi = trine_alloc_array(form_elements, sizeof(*psi));
+  encoded_psi = trine_alloc_array(TRINE_TRIFORM_BYTES, sizeof(*encoded_psi));
+
+  if (base_form == NULL ||
+      nonbase_forms == NULL ||
+      responses == NULL ||
+      base_seeds == NULL ||
+      psi == NULL ||
+      encoded_psi == NULL)
+    goto cleanup;
+
+  if (trine_codec_decode_public_key_checked(
+          public_seed,
+          nonbase_forms,
+          pk,
+          TRINE_PK_BYTES) != 0)
+    goto cleanup;
+
+  if (trine_expand_base_form(base_form, public_seed, MEDS_n) != 0)
+    goto cleanup;
+
+  if (trine_codec_decode_signature_checked(
+          responses,
+          base_seeds,
+          digest,
+          salt,
+          sm,
+          TRINE_SIG_BYTES) != 0)
+    goto cleanup;
+
+  if (trine_parse_hash(
+          digest,
+          sizeof(digest),
+          challenges,
+          MEDS_r) != 0)
+    goto cleanup;
+
+  if (!trine_challenges_valid(challenges))
+    goto cleanup;
+
+  keccak_state transcript;
+  const unsigned char *message = sm + TRINE_SIG_BYTES;
+
+  shake256_init(&transcript);
+  if (message_len != 0u)
+    shake256_absorb(&transcript, message, message_len);
+
+  size_t response_index = 0;
+  size_t base_seed_index = 0;
+
+  for (int round = 0; round < MEDS_r; round++)
+  {
+    const trine_challenge_t challenge = challenges[round];
+
+    if (challenge < MEDS_X)
+    {
+      const Fq *selected_form =
+          nonbase_forms + (size_t)challenge * form_elements;
+      const Fq *response =
+          responses + response_index * (size_t)MEDS_n;
+
+      if (canonical_form_vartime(
+              psi,
+              selected_form,
+              response,
+              MEDS_n) != 0)
+        goto cleanup;
+
+      response_index++;
+    }
+    else if (challenge == MEDS_BASE_FORM_INDEX)
+    {
+      const uint8_t *round_seed =
+          base_seeds + base_seed_index * (size_t)MEDS_round_seed_bytes;
+
+      if (trine_derive_round_commitment_vartime(
+              NULL,
+              psi,
+              base_form,
+              round_seed,
+              salt,
+              (uint32_t)round) != 0)
+        goto cleanup;
+
+      base_seed_index++;
+    }
+    else
+    {
+      goto cleanup;
     }
 
-
-    uint8_t bs_buf[MEDS_G_BYTES];
-
-    encode_G_full(bs_buf, G_hat_i);
- 
-    shake256_absorb(&shake, bs_buf, MEDS_G_BYTES);
+    if (trine_absorb_canonical_form(&transcript, encoded_psi, psi) != 0)
+      goto cleanup;
   }
 
-  if (response_count != MEDS_K ||
-      zero_seed_count != MEDS_ZERO_SEED_COUNT ||
-      seed_in != sm + MEDS_DIGEST_OFFSET ||
-      bs.byte_pos != MEDS_RESPONSE_BYTES ||
-      bs.bit_pos != 0)
-    return -1;
+  if (response_index != MEDS_K ||
+      base_seed_index != TRINE_BASE_SEED_COUNT)
+    goto cleanup;
 
-  shake256_absorb(&shake, (uint8_t*)(sm + MEDS_SIG_BYTES), smlen - MEDS_SIG_BYTES);
+  shake256_finalize(&transcript);
+  shake256_squeeze(digest_check, sizeof(digest_check), &transcript);
 
-  shake256_finalize(&shake);
+  if (trine_parse_hash(
+          digest_check,
+          sizeof(digest_check),
+          challenges_check,
+          MEDS_r) != 0)
+    goto cleanup;
 
-  uint8_t check[MEDS_digest_bytes];
+  if (!trine_challenges_equal(challenges, challenges_check))
+    goto cleanup;
 
-  shake256_squeeze(check, MEDS_digest_bytes, &shake);
+  if (message_len != 0u)
+    memmove(m, message, message_len);
+  *mlen = (unsigned long long)message_len;
+  result = 0;
 
-  if (memcmp(digest, check, MEDS_digest_bytes) != 0)
-  {
-    fprintf(stderr, "Signature verification failed!\n");
-
-    return -1;
-  }
-
-  memcpy(m, (uint8_t*)(sm + MEDS_SIG_BYTES), smlen - MEDS_SIG_BYTES);
-  *mlen = smlen - MEDS_SIG_BYTES;
-
-  return 0;
+cleanup:
+  trine_secure_clear(digest, sizeof(digest));
+  trine_secure_clear(digest_check, sizeof(digest_check));
+  trine_secure_clear(salt, sizeof(salt));
+  trine_secure_clear(responses, response_elements * sizeof(*responses));
+  trine_secure_clear(base_seeds, TRINE_BASE_SEED_BYTES);
+  free(base_form);
+  free(nonbase_forms);
+  free(responses);
+  free(base_seeds);
+  free(psi);
+  free(encoded_psi);
+  return result;
 }

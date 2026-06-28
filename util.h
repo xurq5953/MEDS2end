@@ -13,8 +13,6 @@ void rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len);
 
 void rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len);
 
-int parse_hash(const uint8_t *digest, int digest_len, uint8_t *h, int len_h);
-
 int trine_parse_hash(
     const uint8_t *digest,
     size_t digest_len,
