@@ -857,64 +857,90 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current TRINE Protocol Integration Phase
+# Current Balanced TRINE Parameter Sync Phase
 
-The current focused production phase is TRINE KeyGen, Sign, and Verify protocol integration.
+The current focused production phase is syncing the implementation to the Balanced-TRINE I parameter set and validating speed-test correctness.
 
-This phase may add or modify only:
+The active parameter set is:
+
+```text
+(n, q, r, K, X) = (22, 4093, 138, 52, 1)
+TRINE_lambda = 128
+```
+
+This phase may add or modify production, benchmark, and speed-test files needed for:
+
+- parameter naming and derived sizes;
+- parameter-related loop bounds and array lengths;
+- benchmark parameter output;
+- speed-test return-value and recovered-message validation.
+
+Expected touched files include:
 
 ```text
 params.h
+api.h
+field.h
+field.c
+matrixmod.c
+matrixelim.c
+matrixelim.h
+triform.c
+triform.h
+canonical.c
+canonical.h
+corank1.c
+corank1.h
+trine_expand.c
+trine_expand.h
+trine_codec.c
+trine_codec.h
 util.h
 util.c
 meds.c
+bench.c
+test_speed/test_speed.c
 AGENTS.md
 ```
 
 This phase must not modify:
 
 ```text
-trine_expand.c
-trine_expand.h
-trine_codec.c
-trine_codec.h
-canonical.c
-canonical.h
-corank1.c
-corank1.h
-triform.c
-triform.h
-matrixelim.c
-matrixelim.h
-matrixmod.c
-matrixmod.h
-field.c
-field.h
 bitstream.c
 bitstream.h
 randombytes.c
 randombytes.h
 algorithm name
-parameter values n/q/r/K/X
+KeyGen mathematics
+Sign transcript order
+Verify challenge comparison rule
+pullback direction
+CF algorithm
+Corank1Cal sampling algorithm
+seed expansion domain strings
+codec bit order
 ```
 
-This phase activates the TRINE API sizes:
+The active TRINE API sizes are:
 
 ```text
-TRINE_PK_BYTES  = TRINE_PK_BYTES
-TRINE_SK_BYTES  = TRINE_SK_BYTES
-TRINE_SIG_BYTES = TRINE_SIG_BYTES
+TRINE_PK_BYTES  = 16004
+TRINE_SK_BYTES  = 32
+TRINE_SIG_BYTES = 3156
 ```
 
 `CRYPTO_ALGNAME` must remain unchanged.
 
-`TRINE_X` means the number of non-base public forms, and the base form index is `TRINE_X`:
+`TRINE_X` means the number of non-base public forms. With `TRINE_X = 1`, the only non-base form is `phi_0`, and the base form is `phi_1`:
 
 ```text
-TRINE_NONBASE_COUNT   = TRINE_X
-TRINE_FORM_COUNT      = TRINE_X + 1
-TRINE_BASE_FORM_INDEX = TRINE_X
+TRINE_NONBASE_COUNT   = 1
+TRINE_FORM_COUNT      = 2
+TRINE_BASE_FORM_INDEX = 1
+challenge values      = {0, 1}
 ```
+
+Exactly 52 signing rounds must use challenge `0`, and exactly 86 rounds must use challenge `1`.
 
 KeyGen must implement:
 

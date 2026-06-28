@@ -7,9 +7,9 @@
 
 #define TRINE_n 22
 #define TRINE_q 4093
-#define TRINE_r 144
-#define TRINE_K 14
-#define TRINE_X 4
+#define TRINE_r 138
+#define TRINE_K 52
+#define TRINE_X 1
 
 #define TRINE_q_bits 12
 
@@ -28,8 +28,8 @@ typedef uint16_t trine_challenge_t;
 #error "TRINE_K must not exceed TRINE_r"
 #endif
 
-#if TRINE_X < 2 || TRINE_X > 256
-#error "TRINE requires 2 <= TRINE_X <= 256"
+#if TRINE_X < 1 || TRINE_X > 256
+#error "TRINE requires 1 <= TRINE_X <= 256"
 #endif
 
 #if TRINE_lambda % 8 != 0
@@ -66,5 +66,14 @@ _Static_assert(
 #define TRINE_DIGEST_OFFSET (TRINE_BASE_SEED_OFFSET + TRINE_BASE_SEED_BYTES)
 #define TRINE_SALT_OFFSET (TRINE_DIGEST_OFFSET + TRINE_digest_bytes)
 #define TRINE_SIG_BYTES (TRINE_SALT_OFFSET + TRINE_salt_bytes)
+
+_Static_assert(TRINE_VECTOR_BYTES == 33, "unexpected vector size");
+_Static_assert(TRINE_TRIFORM_BYTES == 15972, "unexpected triform size");
+_Static_assert(TRINE_PK_BYTES == 16004, "unexpected public-key size");
+_Static_assert(TRINE_SK_BYTES == 32, "unexpected secret-key size");
+_Static_assert(TRINE_RESPONSE_BYTES == 1716, "unexpected response size");
+_Static_assert(TRINE_BASE_SEED_COUNT == 86, "unexpected base-seed count");
+_Static_assert(TRINE_BASE_SEED_BYTES == 1376, "unexpected base-seed segment size");
+_Static_assert(TRINE_SIG_BYTES == 3156, "unexpected signature size");
 
 #endif
