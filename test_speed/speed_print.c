@@ -5,47 +5,85 @@
 #include "cpucycles.h"
 #include "speed_print.h"
 
-static int cmp_uint64(const void *a, const void *b) {
-  if(*(const uint64_t *)a < *(const uint64_t *)b) return -1;
-  if(*(const uint64_t *)a > *(const uint64_t *)b) return 1;
-  return 0;
+static int cmp_uint64(const void *a, const void *b)
+{
+    const uint64_t x = *(const uint64_t *)a;
+    const uint64_t y = *(const uint64_t *)b;
+    return (x > y) - (x < y);
 }
 
-static uint64_t median(uint64_t *l, size_t llen) {
-  qsort(l,llen,sizeof(uint64_t),cmp_uint64);
+static uint64_t median(uint64_t *values, size_t count)
+{
+    qsort(values, count, sizeof(*values), cmp_uint64);
 
-  if(llen%2) return l[llen/2];
-  else return (l[llen/2-1]+l[llen/2])/2;
+    if ((count & 1U) != 0)
+        return values[count / 2];
+
+    const uint64_t lo = values[count / 2 - 1];
+    const uint64_t hi = values[count / 2];
+    return lo + (hi - lo) / 2;
 }
 
-static uint64_t average(uint64_t *t, size_t tlen) {
-  size_t i;
-  uint64_t acc=0;
-
-  for(i=0;i<tlen;i++)
-    acc += t[i];
-
-  return acc/tlen;
+static long double average(const uint64_t *values, size_t count)
+{
+    long double sum = 0.0L;
+    for (size_t i = 0; i < count; ++i)
+        sum += (long double)values[i];
+    return sum / (long double)count;
 }
 
-void print_results(const char *s, uint64_t *t, size_t tlen) {
-  size_t i;
-  static uint64_t overhead = UINT64_MAX;
+void print_results(const char *label, uint64_t *timestamps, size_t timestamp_count)
+{
+    static uint64_t overhead = UINT64_MAX;
+    size_t invalid_samples = 0;
 
-  if(tlen < 2) {
-    fprintf(stderr, "ERROR: Need a least two cycle counts!\n");
-    return;
-  }
+    if (timestamp_count < 2) {
+        fprintf(stderr, "ERROR: Need at least two timestamps.\n");
+        return;
+    }
 
-  if(overhead == UINT64_MAX)
-      overhead = cpucycles_overhead();
+    if (overhead == UINT64_MAX)
+        overhead = cpucycles_overhead();
 
-  tlen--;
-  for(i=0;i<tlen;++i)
-  t[i] = t[i+1] - t[i] - overhead;
+    const size_t sample_count = timestamp_count - 1;
+    for (size_t i = 0; i < sample_count; ++i) {
+        if (timestamps[i + 1] <= timestamps[i]) {
+            fprintf(stderr, "ERROR: Non-monotonic timestamp at sample %zu.\n", i);
+            return;
+        }
 
-  printf("%s\n", s);
-  printf("median: %llu cycles/ticks\n", (unsigned long long)median(t, tlen));
-  printf("average: %llu cycles/ticks\n", (unsigned long long)average(t, tlen));
-  printf("\n");
+        const uint64_t elapsed = timestamps[i + 1] - timestamps[i];
+        if (elapsed <= overhead) {
+            timestamps[i] = 0;
+            ++invalid_samples;
+        } else {
+            timestamps[i] = elapsed - overhead;
+        }
+    }
+
+    const long double avg_ticks = average(timestamps, sample_count);
+    const uint64_t median_ticks = median(timestamps, sample_count);
+    const double tsc_hz = cpucycles_per_second();
+
+    printf("%s\n", label);
+    printf("median: %llu cycles\n", (unsigned long long)median_ticks);
+    printf("average: %.2Lf cycles\n", avg_ticks);
+
+    if (tsc_hz > 0.0) {
+        const double ms_per_operation = (double)(avg_ticks * 1000.0L / tsc_hz);
+        printf("ms per operation: %.9f\n", ms_per_operation);
+        if (ms_per_operation > 0.0)
+            printf("operations per second: %.3f\n", 1000.0 / ms_per_operation);
+    } else {
+        fprintf(stderr, "WARNING: Could not calibrate TSC frequency; time results omitted.\n");
+    }
+
+    if (invalid_samples != 0) {
+        fprintf(stderr,
+                "WARNING: %zu samples were not larger than timer overhead; "
+                "benchmark more operations per sample.\n",
+                invalid_samples);
+    }
+
+    putchar('\n');
 }
