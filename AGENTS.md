@@ -857,26 +857,27 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current TRINE Seed Expansion And Codec Phase
+# Current TRINE Protocol Integration Phase
 
-The current focused production phase is TRINE seed expansion and strict codec support.
+The current focused production phase is TRINE KeyGen, Sign, and Verify protocol integration.
 
 This phase may add or modify only:
 
 ```text
-trine_expand.h
-trine_expand.c
-trine_codec.h
-trine_codec.c
 params.h
-Makefile
-CMakeLists.txt
+util.h
+util.c
+meds.c
 AGENTS.md
 ```
 
 This phase must not modify:
 
 ```text
+trine_expand.c
+trine_expand.h
+trine_codec.c
+trine_codec.h
 canonical.c
 canonical.h
 corank1.c
@@ -889,34 +890,25 @@ matrixmod.c
 matrixmod.h
 field.c
 field.h
-util.c legacy phi()
-util.h legacy phi() declaration
 bitstream.c
 bitstream.h
-meds.c phi() call sites
-crypto_sign_keypair()
-crypto_sign()
-crypto_sign_open()
-KeyGen, Sign, Verify mathematical flow
-public-key, secret-key, or signature formats
-api.h sizes
-challenge parsing or hashing inputs
 randombytes.c
 randombytes.h
+algorithm name
+parameter values n/q/r/K/X
 ```
 
-This phase adds inactive TRINE format macros. It must not switch the active crypto API sizes:
+This phase activates the TRINE API sizes:
 
 ```text
-MEDS_PK_BYTES
-MEDS_SK_BYTES
-MEDS_SIG_BYTES
-CRYPTO_PUBLICKEYBYTES
-CRYPTO_SECRETKEYBYTES
-CRYPTO_BYTES
+MEDS_PK_BYTES  = TRINE_PK_BYTES
+MEDS_SK_BYTES  = TRINE_SK_BYTES
+MEDS_SIG_BYTES = TRINE_SIG_BYTES
 ```
 
-`MEDS_X` means the number of non-base public forms:
+`CRYPTO_ALGNAME` must remain unchanged.
+
+`MEDS_X` means the number of non-base public forms, and the base form index is `MEDS_X`:
 
 ```text
 MEDS_NONBASE_COUNT   = MEDS_X
@@ -924,27 +916,105 @@ MEDS_FORM_COUNT      = MEDS_X + 1
 MEDS_BASE_FORM_INDEX = MEDS_X
 ```
 
-New modules must not treat `MEDS_X` as the total public form count.
-
-The TRINE public-key container is:
+KeyGen must implement:
 
 ```text
-public_seed_for_phi_X || encoded(phi_0) || ... || encoded(phi_{X-1})
+phi_i = phi_X^{A_i,B_i,C_i}
+pk    = public_seed_for_phi_X || encoded(phi_0) || ... || encoded(phi_{X-1})
+sk    = master_secret_seed
 ```
 
-It does not encode the full base form `phi_X`; callers reconstruct it from the public seed.
-
-The TRINE secret-key container is only:
+Sign must implement:
 
 ```text
-master_secret_seed
+repeat for each round i:
+    a_i   = Corank1Cal(phi_X)
+    psi_i = CF(phi_X, a_i)
+until psi_i succeeds
+
+digest    = H(message || psi_0 || ... || psi_{r-1})
+challenge = trine_parse_hash(digest)
 ```
 
-The TRINE signature container is:
+For non-base challenges:
+
+```text
+d_i = A_{b_i}^{-1} a_i
+```
+
+For base challenges, Sign must store the round seed, not the vector representative.
+
+Verify must rebuild:
+
+```text
+b_i < X:
+    psi'_i = CF(phi_{b_i}, d_i)
+
+b_i == X:
+    replay the base round seed and compute psi'_i = CF(phi_X, a_i)
+```
+
+The transcript hash input order is fixed:
+
+```text
+message || encoded(psi_0) || ... || encoded(psi_{r-1})
+```
+
+Do not hash raw in-memory `Fq` arrays. Canonical forms must be encoded with `trine_codec_encode_triform()` before absorption.
+
+Round replay must use:
+
+```text
+"MEDS2END-TRINE-ROUND-v1" || salt || round_seed || round_index_le32
+```
+
+If CF fails during round generation, continue consuming the same advancing SHAKE state. Do not reinitialize the round SHAKE after a failed CF attempt.
+
+Verify must compare parsed challenge vectors:
+
+```text
+trine_parse_hash(signature_digest)
+==
+trine_parse_hash(recomputed_digest)
+```
+
+It must not require bytewise digest equality in this phase.
+
+The compact signature container is:
 
 ```text
 K response vectors || (r - K) base round seeds || digest || salt
 ```
+
+The new API path must not call:
+
+```text
+legacy phi()
+rnd_sys_mat()
+old matrix response encoding
+old matrix response decoding
+```
+
+Do not add:
+
+```text
+trine_protocol.c
+trine_protocol.h
+test hooks
+#ifdef TESTING
+```
+
+Protocol tests belong only on a dedicated test branch under:
+
+```text
+tests/trine_protocol/**
+```
+
+---
+
+# TRINE Seed Expansion And Codec Constraints
+
+`trine_expand` and `trine_codec` are implemented support modules.
 
 `trine_expand` is responsible only for:
 
@@ -954,19 +1024,7 @@ public seed -> base trilinear form phi_X
 master secret seed + role + index -> invertible matrix and inverse
 ```
 
-It must use explicit, versioned domain separation. It must not generate non-base public forms, call `triform_action_pullback()`, call CF, call Corank1Cal, or perform encoding.
-
-`trine_codec` is responsible only for:
-
-```text
-Fq array bit packing
-strict canonical decoding
-vector codec
-triform codec
-public-key container codec
-secret-key container codec
-signature container codec
-```
+`trine_codec` is responsible only for strict canonical encoding and decoding of field arrays, vectors, trilinear forms, public keys, secret keys, and compact signatures.
 
 Codec decoders must reject:
 
@@ -977,35 +1035,6 @@ wrong input lengths
 ```
 
 Codec encoders must reject non-canonical field inputs and preserve output buffers on failure.
-
-Do not implement in this phase:
-
-```text
-ParseHash
-round commitment replay
-transcript hashing
-trine_protocol.c/.h
-KeyGen migration
-Sign migration
-Verify migration
-```
-
-Do not connect TRINE expand or codec to:
-
-```text
-crypto_sign_keypair()
-crypto_sign()
-crypto_sign_open()
-```
-
-Tests for this phase belong only on dedicated test branches under:
-
-```text
-tests/trine_expand/**
-tests/trine_codec/**
-```
-
-and must not add test hooks or `#ifdef TESTING` to production code.
 
 ---
 
