@@ -40,16 +40,15 @@ int main(int argc, char *argv[])
   unsigned long long sig_len = sizeof(sig);
 
 
-  printf("m:    %i\n", TRINE_n);
-  printf("n:    %i\n", TRINE_n);
-  printf("q:    %i\n", TRINE_q);
-  printf("k:    %i\n", TRINE_n);
-  printf("s:    %i\n", TRINE_X);
-  printf("t:    %i\n", TRINE_r);
-  printf("w:    %i\n", TRINE_K);
-
+  printf(
+      "parameters (n, q, r, K, X): (%d, %d, %d, %d, %d)\n",
+      TRINE_n,
+      TRINE_q,
+      TRINE_r,
+      TRINE_K,
+      TRINE_X);
   printf("pk:   %i bytes\n", TRINE_PK_BYTES);
-
+  printf("sk:   %i bytes\n", TRINE_SK_BYTES);
   printf("sig:  %i bytes\n", TRINE_SIG_BYTES);
 
 
@@ -87,4 +86,3 @@ int main(int argc, char *argv[])
 
   return 0;
 }
-

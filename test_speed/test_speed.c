@@ -21,7 +21,7 @@ static uint64_t *cycles = NULL;
 static int speed_rounds = DEFAULT_SPEED_ROUNDS;
 static int protocol_rounds = DEFAULT_PROTOCOL_ROUNDS;
 
-typedef void (*speed_fn)(void *ctx);
+typedef int (*speed_fn)(void *ctx);
 
 typedef struct {
   uint32_t state;
@@ -145,7 +145,7 @@ static void make_corank_one_matrix(Fq *A, int n)
     A[i * n + i] = 1;
 }
 
-static void time_function(const char *label, speed_fn fn, void *ctx, int rounds)
+static int time_function(const char *label, speed_fn fn, void *ctx, int rounds)
 {
   if (rounds < 2)
     rounds = 2;
@@ -153,115 +153,157 @@ static void time_function(const char *label, speed_fn fn, void *ctx, int rounds)
   for (int i = 0; i < rounds; i++)
   {
     cycles[i] = (uint64_t)cpucycles();
-    fn(ctx);
+    if (fn(ctx) != 0)
+    {
+      fprintf(stderr, "%s failed at benchmark round %d\n", label, i);
+      return -1;
+    }
   }
 
   cycles[rounds] = (uint64_t)cpucycles();
   print_results(label, cycles, (size_t)rounds + 1u);
+  return 0;
 }
 
-static void bench_keypair(void *arg)
+static int bench_keypair(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  (void)crypto_sign_keypair(ctx->pk, ctx->sk);
+  if (crypto_sign_keypair(ctx->pk, ctx->sk) != 0)
+    return -1;
+
+  return 0;
 }
 
-static void bench_sign(void *arg)
+static int bench_sign(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  ctx->smlen = sizeof(ctx->sm);
-  (void)crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk);
+  ctx->smlen = 0;
+
+  if (crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk) != 0)
+    return -1;
+
+  if (ctx->smlen !=
+      (unsigned long long)CRYPTO_BYTES +
+      (unsigned long long)sizeof(ctx->msg))
+    return -1;
+
+  return 0;
 }
 
-static void bench_open(void *arg)
+static int bench_open(void *arg)
 {
   speed_ctx_t *ctx = arg;
-  ctx->opened_len = sizeof(ctx->opened);
-  (void)crypto_sign_open(ctx->opened, &ctx->opened_len, ctx->sm, ctx->smlen, ctx->pk);
+  memset(ctx->opened, 0xa5, sizeof(ctx->opened));
+  ctx->opened_len = 0;
+
+  if (crypto_sign_open(ctx->opened, &ctx->opened_len, ctx->sm, ctx->smlen, ctx->pk) != 0)
+    return -1;
+
+  if (ctx->opened_len != (unsigned long long)sizeof(ctx->msg))
+    return -1;
+
+  if (memcmp(ctx->opened, ctx->msg, sizeof(ctx->msg)) != 0)
+    return -1;
+
+  return 0;
 }
 
-static void bench_gf_add(void *arg)
+static int bench_gf_add(void *arg)
 {
   speed_ctx_t *ctx = arg;
   ctx->c = GF_add(ctx->a, ctx->b);
+  return 0;
 }
 
-static void bench_gf_mul(void *arg)
+static int bench_gf_mul(void *arg)
 {
   speed_ctx_t *ctx = arg;
   ctx->c = GF_mul(ctx->a, ctx->b);
+  return 0;
 }
 
-static void bench_gf_inv(void *arg)
+static int bench_gf_inv(void *arg)
 {
   speed_ctx_t *ctx = arg;
   ctx->c = GF_inv(ctx->a);
+  return 0;
 }
 
-static void bench_mat_mul(void *arg)
+static int bench_mat_mul(void *arg)
 {
   speed_ctx_t *ctx = arg;
   pmod_mat_mul(ctx->mat3, ctx->mat, ctx->mat2, TRINE_n);
+  return 0;
 }
 
-static void bench_mat_vec_mul(void *arg)
+static int bench_mat_vec_mul(void *arg)
 {
   speed_ctx_t *ctx = arg;
   pmod_mat_vec_mul(ctx->vec2, ctx->mat, ctx->vec, TRINE_n);
+  return 0;
 }
 
-static void bench_mat_rank(void *arg)
+static int bench_mat_rank(void *arg)
 {
   speed_ctx_t *ctx = arg;
   ctx->c = (Fq)pmod_mat_rank_vartime(ctx->mat, TRINE_n);
+  return 0;
 }
 
-static void bench_mat_inv(void *arg)
+static int bench_mat_inv(void *arg)
 {
   speed_ctx_t *ctx = arg;
   (void)pmod_mat_inv_vartime(ctx->mat3, ctx->mat, TRINE_n);
+  return 0;
 }
 
-static void bench_right_kernel(void *arg)
+static int bench_right_kernel(void *arg)
 {
   speed_ctx_t *ctx = arg;
   (void)pmod_mat_right_kernel_corank1_vartime(ctx->vec2, ctx->mat2, TRINE_n);
+  return 0;
 }
 
-static void bench_triform_matrix_at_w(void *arg)
+static int bench_triform_matrix_at_w(void *arg)
 {
   speed_ctx_t *ctx = arg;
   triform_matrix_at_w(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
+  return 0;
 }
 
-static void bench_triform_phi_u(void *arg)
+static int bench_triform_phi_u(void *arg)
 {
   speed_ctx_t *ctx = arg;
   triform_phi_u(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
+  return 0;
 }
 
-static void bench_triform_phi_v(void *arg)
+static int bench_triform_phi_v(void *arg)
 {
   speed_ctx_t *ctx = arg;
   triform_phi_v(ctx->mat3, ctx->form, ctx->vec, TRINE_n);
+  return 0;
 }
 
-static void bench_triform_eval(void *arg)
+static int bench_triform_eval(void *arg)
 {
   speed_ctx_t *ctx = arg;
   ctx->c = triform_eval(ctx->form, ctx->vec, ctx->vec2, ctx->vec, TRINE_n);
+  return 0;
 }
 
-static void bench_triform_action_pullback(void *arg)
+static int bench_triform_action_pullback(void *arg)
 {
   speed_ctx_t *ctx = arg;
   triform_action_pullback(ctx->form2, ctx->form, ctx->mat, ctx->mat2, ctx->mat3, TRINE_n);
+  return 0;
 }
 
-static void bench_builduvw(void *arg)
+static int bench_builduvw(void *arg)
 {
   speed_ctx_t *ctx = arg;
   (void)canonical_build_uvw_vartime(ctx->U, ctx->V, ctx->W, ctx->form, ctx->vec, TRINE_n);
+  return 0;
 }
 
 static void init_context(speed_ctx_t *ctx)
@@ -290,10 +332,33 @@ static void init_context(speed_ctx_t *ctx)
     exit(1);
   }
 
-  ctx->smlen = sizeof(ctx->sm);
+  ctx->smlen = 0;
   if (crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk) != 0)
   {
     fprintf(stderr, "crypto_sign failed during speed setup\n");
+    exit(1);
+  }
+
+  if (ctx->smlen !=
+      (unsigned long long)CRYPTO_BYTES +
+      (unsigned long long)sizeof(ctx->msg))
+  {
+    fprintf(stderr, "crypto_sign produced an unexpected signed-message length\n");
+    exit(1);
+  }
+
+  memset(ctx->opened, 0xa5, sizeof(ctx->opened));
+  ctx->opened_len = 0;
+  if (crypto_sign_open(ctx->opened, &ctx->opened_len, ctx->sm, ctx->smlen, ctx->pk) != 0)
+  {
+    fprintf(stderr, "crypto_sign_open failed during speed setup\n");
+    exit(1);
+  }
+
+  if (ctx->opened_len != (unsigned long long)sizeof(ctx->msg) ||
+      memcmp(ctx->opened, ctx->msg, sizeof(ctx->msg)) != 0)
+  {
+    fprintf(stderr, "crypto_sign_open recovered the wrong message during speed setup\n");
     exit(1);
   }
 }
@@ -330,32 +395,58 @@ int main(int argc, char **argv)
   init_context(&ctx);
 
   printf("name: %s\n", CRYPTO_ALGNAME);
-  printf("n: %d\n", TRINE_n);
-  printf("q: %d\n", TRINE_q);
+  printf(
+      "parameters (n, q, r, K, X): (%d, %d, %d, %d, %d)\n",
+      TRINE_n,
+      TRINE_q,
+      TRINE_r,
+      TRINE_K,
+      TRINE_X);
   printf("pk: %d bytes\n", TRINE_PK_BYTES);
   printf("sk: %d bytes\n", TRINE_SK_BYTES);
   printf("sig: %d bytes\n", TRINE_SIG_BYTES);
   printf("rounds: core=%d protocol=%d\n\n", speed_rounds, protocol_rounds);
 
-  time_function("crypto_sign_keypair", bench_keypair, &ctx, protocol_rounds);
-  time_function("crypto_sign", bench_sign, &ctx, protocol_rounds);
-  time_function("crypto_sign_open", bench_open, &ctx, protocol_rounds);
+  if (time_function("crypto_sign_keypair", bench_keypair, &ctx, protocol_rounds) != 0)
+    goto failure;
+  if (time_function("crypto_sign", bench_sign, &ctx, protocol_rounds) != 0)
+    goto failure;
+  if (time_function("crypto_sign_open", bench_open, &ctx, protocol_rounds) != 0)
+    goto failure;
 
-  time_function("GF_add", bench_gf_add, &ctx, speed_rounds);
-  time_function("GF_mul", bench_gf_mul, &ctx, speed_rounds);
-  time_function("GF_inv", bench_gf_inv, &ctx, speed_rounds);
-  time_function("pmod_mat_mul", bench_mat_mul, &ctx, speed_rounds);
-  time_function("pmod_mat_vec_mul", bench_mat_vec_mul, &ctx, speed_rounds);
-  time_function("pmod_mat_rank_vartime", bench_mat_rank, &ctx, speed_rounds);
-  time_function("pmod_mat_inv_vartime", bench_mat_inv, &ctx, speed_rounds);
-  time_function("pmod_mat_right_kernel_corank1_vartime", bench_right_kernel, &ctx, speed_rounds);
-  time_function("triform_matrix_at_w", bench_triform_matrix_at_w, &ctx, speed_rounds);
-  time_function("triform_phi_u", bench_triform_phi_u, &ctx, speed_rounds);
-  time_function("triform_phi_v", bench_triform_phi_v, &ctx, speed_rounds);
-  time_function("triform_eval", bench_triform_eval, &ctx, speed_rounds);
-  time_function("triform_action_pullback", bench_triform_action_pullback, &ctx, speed_rounds);
-  time_function("canonical_build_uvw_vartime", bench_builduvw, &ctx, speed_rounds);
+  if (time_function("GF_add", bench_gf_add, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("GF_mul", bench_gf_mul, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("GF_inv", bench_gf_inv, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_mul", bench_mat_mul, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_vec_mul", bench_mat_vec_mul, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_rank_vartime", bench_mat_rank, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_inv_vartime", bench_mat_inv, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_right_kernel_corank1_vartime", bench_right_kernel, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_matrix_at_w", bench_triform_matrix_at_w, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_phi_u", bench_triform_phi_u, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_phi_v", bench_triform_phi_v, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_eval", bench_triform_eval, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_action_pullback", bench_triform_action_pullback, &ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("canonical_build_uvw_vartime", bench_builduvw, &ctx, speed_rounds) != 0)
+    goto failure;
 
   free(cycles);
-  return 0;
+  return EXIT_SUCCESS;
+
+failure:
+  free(cycles);
+  return EXIT_FAILURE;
 }
