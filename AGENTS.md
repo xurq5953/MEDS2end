@@ -113,6 +113,8 @@ Inspect the actual repository before editing. Expected core files include:
 - `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
 - `canonical.c`, `canonical.h`: canonical-form layer entry points; currently `BuildUVW`, `DiagonalNormalize`, and `CF`;
 - `corank1.c`, `corank1.h`: randomized corank-one point sampler for Algorithm 1;
+- `trine_expand.c`, `trine_expand.h`: deterministic TRINE seed expansion helpers;
+- `trine_codec.c`, `trine_codec.h`: strict TRINE field, form, key, and signature codecs;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -855,15 +857,18 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current Corank1Cal phase
+# Current TRINE Seed Expansion And Codec Phase
 
-The current focused production phase is `Corank1Cal`, the randomized corank-one point sampler.
+The current focused production phase is TRINE seed expansion and strict codec support.
 
 This phase may add or modify only:
 
 ```text
-corank1.h
-corank1.c
+trine_expand.h
+trine_expand.c
+trine_codec.h
+trine_codec.c
+params.h
 Makefile
 CMakeLists.txt
 AGENTS.md
@@ -874,6 +879,8 @@ This phase must not modify:
 ```text
 canonical.c
 canonical.h
+corank1.c
+corank1.h
 triform.c
 triform.h
 matrixelim.c
@@ -884,30 +891,127 @@ field.c
 field.h
 util.c legacy phi()
 util.h legacy phi() declaration
+bitstream.c
+bitstream.h
 meds.c phi() call sites
 crypto_sign_keypair()
 crypto_sign()
 crypto_sign_open()
 KeyGen, Sign, Verify mathematical flow
 public-key, secret-key, or signature formats
-params.h or api.h sizes
+api.h sizes
 challenge parsing or hashing inputs
-bitstream.c
-bitstream.h
+randombytes.c
+randombytes.h
 ```
 
-The phase implements only:
-
-```c
-corank1_cal_vartime()
-```
-
-It must not implement or declare:
+This phase adds inactive TRINE format macros. It must not switch the active crypto API sizes:
 
 ```text
-new CF variants
-protocol migration
+MEDS_PK_BYTES
+MEDS_SK_BYTES
+MEDS_SIG_BYTES
+CRYPTO_PUBLICKEYBYTES
+CRYPTO_SECRETKEYBYTES
+CRYPTO_BYTES
 ```
+
+`MEDS_X` means the number of non-base public forms:
+
+```text
+MEDS_NONBASE_COUNT   = MEDS_X
+MEDS_FORM_COUNT      = MEDS_X + 1
+MEDS_BASE_FORM_INDEX = MEDS_X
+```
+
+New modules must not treat `MEDS_X` as the total public form count.
+
+The TRINE public-key container is:
+
+```text
+public_seed_for_phi_X || encoded(phi_0) || ... || encoded(phi_{X-1})
+```
+
+It does not encode the full base form `phi_X`; callers reconstruct it from the public seed.
+
+The TRINE secret-key container is only:
+
+```text
+master_secret_seed
+```
+
+The TRINE signature container is:
+
+```text
+K response vectors || (r - K) base round seeds || digest || salt
+```
+
+`trine_expand` is responsible only for:
+
+```text
+master secret seed -> public seed
+public seed -> base trilinear form phi_X
+master secret seed + role + index -> invertible matrix and inverse
+```
+
+It must use explicit, versioned domain separation. It must not generate non-base public forms, call `triform_action_pullback()`, call CF, call Corank1Cal, or perform encoding.
+
+`trine_codec` is responsible only for:
+
+```text
+Fq array bit packing
+strict canonical decoding
+vector codec
+triform codec
+public-key container codec
+secret-key container codec
+signature container codec
+```
+
+Codec decoders must reject:
+
+```text
+field values >= MEDS_p
+nonzero unused padding bits
+wrong input lengths
+```
+
+Codec encoders must reject non-canonical field inputs and preserve output buffers on failure.
+
+Do not implement in this phase:
+
+```text
+ParseHash
+round commitment replay
+transcript hashing
+trine_protocol.c/.h
+KeyGen migration
+Sign migration
+Verify migration
+```
+
+Do not connect TRINE expand or codec to:
+
+```text
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+```
+
+Tests for this phase belong only on dedicated test branches under:
+
+```text
+tests/trine_expand/**
+tests/trine_codec/**
+```
+
+and must not add test hooks or `#ifdef TESTING` to production code.
+
+---
+
+# Corank1Cal implementation constraints
+
+`Corank1Cal` is implemented as the randomized corank-one point sampler.
 
 `Corank1Cal` implements Algorithm 1 only:
 
@@ -928,14 +1032,6 @@ rank(Phi_U(u)) == n - 1
 
 Do not projectively normalize the representative.
 
-The public interface has the precondition:
-
-```text
-1 <= n && n <= MEDS_n
-```
-
-Invalid dimensions and null pointers must be rejected before any VLA declarations.
-
 The implementation must reuse:
 
 ```text
@@ -944,17 +1040,9 @@ triform_phi_u()
 pmod_mat_rank_vartime()
 ```
 
-Do not reimplement field sampling, `Phi_U`, Gaussian elimination, or rank.
+The caller owns SHAKE initialization and domain separation. `Corank1Cal` consumes and advances the supplied `keccak_state`.
 
-The caller owns SHAKE initialization and domain separation. `Corank1Cal` consumes and advances the supplied `keccak_state`; it must not call:
-
-```text
-randombytes()
-rand()
-global RNGs
-```
-
-For valid input, `corank1_cal_vartime()` has no hidden attempt bound. If the input form has no corank-one point, Algorithm 1 does not terminate. A bounded defensive API must be designed separately if it is needed later.
+For valid input, `corank1_cal_vartime()` has no hidden attempt bound. If the input form has no corank-one point, Algorithm 1 does not terminate.
 
 Do not call:
 
@@ -974,40 +1062,6 @@ until psi succeeds
 ```
 
 Do not move that loop into `Corank1Cal`.
-
-Failure semantics:
-
-```text
-0   success
--1  invalid input
-```
-
-Invalid input must leave caller-provided `out_u` unchanged. Valid input loops until success.
-
-The public contract does not support implicit aliasing:
-
-```text
-out_u must not overlap M
-```
-
-Do not connect `Corank1Cal` to:
-
-```text
-crypto_sign_keypair()
-crypto_sign()
-crypto_sign_open()
-KeyGen
-Sign
-Verify
-```
-
-Tests for this phase belong only on a dedicated test branch under:
-
-```text
-tests/corank1_cal/**
-```
-
-and must not add test hooks or `#ifdef TESTING` to production code.
 
 ---
 
