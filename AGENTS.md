@@ -111,7 +111,7 @@ Inspect the actual repository before editing. Expected core files include:
 - `matrixmod.c`, `matrixmod.h`: non-elimination matrix and vector operations plus legacy systematic-form helpers;
 - `matrixelim.c`, `matrixelim.h`: pivot-aware variable-time elimination, rank, inverse, kernels, and span tests;
 - `triform.c`, `triform.h`: trilinear-form slice access, derived matrices, evaluation, corank-one wrappers, and the independent pullback action;
-- `canonical.c`, `canonical.h`: canonical-form layer entry points; currently `BuildUVW` and `DiagonalNormalize`;
+- `canonical.c`, `canonical.h`: canonical-form layer entry points; currently `BuildUVW`, `DiagonalNormalize`, and `CF`;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
@@ -854,9 +854,9 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current DiagonalNormalize phase
+# Current Canonical Form (CF) phase
 
-The current focused production phase is `DiagonalNormalize` in the canonical-form layer.
+The current focused production phase is Canonical Form (`CF`) in the canonical-form layer.
 
 This phase may add or modify only:
 
@@ -888,15 +888,80 @@ CMakeLists.txt
 The phase implements only:
 
 ```c
-canonical_diagonal_normalize_vartime()
+canonical_form_vartime()
 ```
 
 It must not implement or declare:
 
 ```text
-CF
 Corank1Cal
 ```
+
+`CF` is strictly a thin composition layer:
+
+```text
+(U, V, W) = BuildUVW(M, u1)
+out       = DiagonalNormalize(M, U, V, W)
+```
+
+Do not copy or duplicate the internals of `BuildUVW` or `DiagonalNormalize` in `canonical_form_vartime()`.
+
+The public interface has the precondition:
+
+```text
+5 <= n && n <= MEDS_n
+```
+
+because complete CF calls `DiagonalNormalize`, which uses `M5`, `g3`, and `h5`. Invalid dimensions and null pointers must be rejected before any VLA declarations.
+
+The implementation must reuse:
+
+```text
+canonical_build_uvw_vartime()
+canonical_diagonal_normalize_vartime()
+```
+
+Do not add extra rank, kernel, action, anchor, normalization, or invertibility checks in `canonical_form_vartime()`. Those responsibilities belong to the two lower stages.
+
+Failure semantics:
+
+```text
+0   success
+-1  invalid input, BuildUVW failure, or DiagonalNormalize failure
+```
+
+Any failure must leave caller-provided `out` unchanged. `BuildUVW` writes only local `U`, `V`, and `W`; `DiagonalNormalize` already preserves `out` on failure.
+
+The public contract does not support implicit aliasing:
+
+```text
+out, M, and u1 must not overlap
+```
+
+Do not connect `CF` to:
+
+```text
+crypto_sign_keypair()
+crypto_sign()
+crypto_sign_open()
+KeyGen
+Sign
+Verify
+```
+
+Tests for this phase belong only on a dedicated test branch under:
+
+```text
+tests/canonical_form/**
+```
+
+and must not add test hooks or `#ifdef TESTING` to production code.
+
+---
+
+# DiagonalNormalize implementation constraints
+
+`DiagonalNormalize` is implemented in the canonical-form layer.
 
 `DiagonalNormalize` computes:
 
@@ -906,14 +971,6 @@ out_k         = h_k * diag(f) * transformed_k * diag(g)
 ```
 
 where `w_k` is column `k` of `W`.
-
-The public interface has the precondition:
-
-```text
-5 <= n && n <= MEDS_n
-```
-
-because the algorithm uses `M5`, `g3`, and `h5`. Invalid dimensions and null pointers must be rejected before any VLA declarations.
 
 The implementation must reuse:
 
@@ -939,39 +996,13 @@ d4:  slice 1, row 1, col 0
 
 Any required anchor equal to zero must make the function fail.
 
-Failure semantics:
-
-```text
-0   success
--1  invalid input or required anchor is zero
-```
-
-On failure, caller-provided `out` must remain unchanged.
-
 The public contract does not support implicit aliasing:
 
 ```text
 out must not overlap M, U, V, or W
 ```
 
-Do not connect `DiagonalNormalize` to:
-
-```text
-crypto_sign_keypair()
-crypto_sign()
-crypto_sign_open()
-KeyGen
-Sign
-Verify
-```
-
-Tests for this phase belong only on a dedicated test branch under:
-
-```text
-tests/diagonal_normalize/**
-```
-
-and must not add test hooks or `#ifdef TESTING` to production code.
+Do not connect `DiagonalNormalize` to protocol code directly.
 
 ---
 

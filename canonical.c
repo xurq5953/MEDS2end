@@ -328,3 +328,27 @@ int canonical_diagonal_normalize_vartime(
 
   return 0;
 }
+
+int canonical_form_vartime(
+    Fq *out,
+    const Fq *M,
+    const Fq *u1,
+    int n)
+{
+  if (out == NULL ||
+      M == NULL ||
+      u1 == NULL)
+    return -1;
+
+  if (n < 5 || n > MEDS_n)
+    return -1;
+
+  Fq U[n * n];
+  Fq V[n * n];
+  Fq W[n * n];
+
+  if (canonical_build_uvw_vartime(U, V, W, M, u1, n) != 0)
+    return -1;
+
+  return canonical_diagonal_normalize_vartime(out, M, U, V, W, n);
+}

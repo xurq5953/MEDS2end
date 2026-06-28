@@ -65,4 +65,34 @@ int canonical_diagonal_normalize_vartime(
     const Fq *W,
     int n);
 
+/*
+ * Compute the TRINE canonical form associated with the
+ * projective point represented by u1.
+ *
+ *   (U, V, W) = BuildUVW(M, u1)
+ *   out       = DiagonalNormalize(M, U, V, W)
+ *
+ * Return:
+ *    0  success
+ *   -1  invalid input, BuildUVW failure, or
+ *       DiagonalNormalize failure
+ *
+ * Preconditions:
+ *   5 <= n && n <= MEDS_n
+ *   M contains n^3 canonical field elements
+ *   u1 contains n canonical field elements
+ *   u1 is nonzero
+ *   out provides n^3 writable field elements
+ *   out, M, and u1 do not overlap
+ *
+ * The function is variable-time.
+ *
+ * On failure, out is left unchanged.
+ */
+int canonical_form_vartime(
+    Fq *out,
+    const Fq *M,
+    const Fq *u1,
+    int n);
+
 #endif
