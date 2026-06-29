@@ -1,5 +1,6 @@
 #include "canonical.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "field.h"
@@ -314,19 +315,26 @@ int canonical_diagonal_normalize_vartime(
   if (n < 5 || n > TRINE_n)
     return -1;
 
-  Fq transformed[triform_element_count(n)];
+  Fq *transformed = malloc(triform_element_count(n) * sizeof(*transformed));
+  if (transformed == NULL)
+    return -1;
+
   Fq f[n];
   Fq g[n];
   Fq h[n];
+  int ret = -1;
 
   triform_action_pullback(transformed, M, U, V, W, n);
 
   if (compute_normalization_diagonals(f, g, h, transformed, n) != 0)
-    return -1;
+    goto cleanup;
 
   apply_normalization(out, transformed, f, g, h, n);
+  ret = 0;
 
-  return 0;
+cleanup:
+  free(transformed);
+  return ret;
 }
 
 int canonical_form_vartime(

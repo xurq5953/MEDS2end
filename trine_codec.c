@@ -1,5 +1,6 @@
 #include "trine_codec.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static int valid_dimension(int n)
@@ -110,11 +111,8 @@ int trine_codec_encode_fq_array(
   if (validate_fq_array(values, element_count) != 0)
     return -1;
 
-  uint8_t tmp[expected_len];
-  memset(tmp, 0, sizeof(tmp));
-
-  encode_fq_array_unchecked(tmp, values, element_count);
-  memcpy(out, tmp, sizeof(tmp));
+  memset(out, 0, out_len);
+  encode_fq_array_unchecked(out, values, element_count);
 
   return 0;
 }
@@ -139,16 +137,22 @@ int trine_codec_decode_fq_array_checked(
   if (!padding_is_zero(in, element_count, in_len))
     return -1;
 
-  Fq tmp[element_count];
+  Fq *tmp = malloc(element_count * sizeof(*tmp));
+  if (tmp == NULL)
+    return -1;
 
   for (size_t i = 0; i < element_count; i++)
   {
     tmp[i] = decode_fq_unchecked(in, i);
     if (tmp[i] >= TRINE_q)
+    {
+      free(tmp);
       return -1;
+    }
   }
 
-  memcpy(out, tmp, sizeof(tmp));
+  memcpy(out, tmp, element_count * sizeof(*tmp));
+  free(tmp);
   return 0;
 }
 
@@ -230,14 +234,16 @@ int trine_codec_encode_public_key(
       nonbase_forms == NULL)
     return -1;
 
-  uint8_t tmp[TRINE_PK_BYTES];
-  memcpy(tmp, public_seed, TRINE_public_seed_bytes);
-
   const size_t form_elements = triform_element_count_local(TRINE_n);
+  if (validate_fq_array(nonbase_forms, (size_t)TRINE_X * form_elements) != 0)
+    return -1;
+
+  memcpy(out_pk, public_seed, TRINE_public_seed_bytes);
+
   for (size_t form = 0; form < (size_t)TRINE_X; form++)
   {
     uint8_t *encoded_form =
-        tmp + TRINE_public_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
+        out_pk + TRINE_public_seed_bytes + form * (size_t)TRINE_TRIFORM_BYTES;
     const Fq *form_values =
         nonbase_forms + form * form_elements;
 
@@ -249,7 +255,6 @@ int trine_codec_encode_public_key(
       return -1;
   }
 
-  memcpy(out_pk, tmp, sizeof(tmp));
   return 0;
 }
 
@@ -267,11 +272,12 @@ int trine_codec_decode_public_key_checked(
       pk == NULL)
     return -1;
 
-  uint8_t public_seed_tmp[TRINE_public_seed_bytes];
   const size_t form_elements = triform_element_count_local(TRINE_n);
-  Fq forms_tmp[(size_t)TRINE_X * form_elements];
+  const size_t forms_count = (size_t)TRINE_X * form_elements;
+  Fq *forms_tmp = malloc(forms_count * sizeof(*forms_tmp));
+  if (forms_tmp == NULL)
+    return -1;
 
-  memcpy(public_seed_tmp, pk, sizeof(public_seed_tmp));
 
   for (size_t form = 0; form < (size_t)TRINE_X; form++)
   {
@@ -284,11 +290,15 @@ int trine_codec_decode_public_key_checked(
             encoded_form,
             TRINE_TRIFORM_BYTES,
             TRINE_n) != 0)
+    {
+      free(forms_tmp);
       return -1;
+    }
   }
 
-  memcpy(out_public_seed, public_seed_tmp, sizeof(public_seed_tmp));
-  memcpy(out_nonbase_forms, forms_tmp, sizeof(forms_tmp));
+  memcpy(out_public_seed, pk, TRINE_public_seed_bytes);
+  memcpy(out_nonbase_forms, forms_tmp, forms_count * sizeof(*forms_tmp));
+  free(forms_tmp);
 
   return 0;
 }
@@ -304,9 +314,7 @@ int trine_codec_encode_secret_key(
   if (out_sk == NULL || secret_seed == NULL)
     return -1;
 
-  uint8_t tmp[TRINE_SK_BYTES];
-  memcpy(tmp, secret_seed, sizeof(tmp));
-  memcpy(out_sk, tmp, sizeof(tmp));
+  memcpy(out_sk, secret_seed, TRINE_SK_BYTES);
 
   return 0;
 }
@@ -322,9 +330,7 @@ int trine_codec_decode_secret_key(
   if (out_secret_seed == NULL || sk == NULL)
     return -1;
 
-  uint8_t tmp[TRINE_SK_BYTES];
-  memcpy(tmp, sk, sizeof(tmp));
-  memcpy(out_secret_seed, tmp, sizeof(tmp));
+  memcpy(out_secret_seed, sk, TRINE_SK_BYTES);
 
   return 0;
 }
@@ -347,23 +353,20 @@ int trine_codec_encode_signature(
       salt == NULL)
     return -1;
 
-  uint8_t tmp[TRINE_SIG_BYTES];
-
   if (trine_codec_encode_fq_array(
-          tmp + TRINE_RESPONSE_OFFSET,
+          out_sig + TRINE_RESPONSE_OFFSET,
           TRINE_RESPONSE_BYTES,
           responses,
           (size_t)TRINE_K * (size_t)TRINE_n) != 0)
     return -1;
 
   memcpy(
-      tmp + TRINE_BASE_SEED_OFFSET,
+      out_sig + TRINE_BASE_SEED_OFFSET,
       base_seeds,
       TRINE_BASE_SEED_BYTES);
-  memcpy(tmp + TRINE_DIGEST_OFFSET, digest, TRINE_digest_bytes);
-  memcpy(tmp + TRINE_SALT_OFFSET, salt, TRINE_salt_bytes);
+  memcpy(out_sig + TRINE_DIGEST_OFFSET, digest, TRINE_digest_bytes);
+  memcpy(out_sig + TRINE_SALT_OFFSET, salt, TRINE_salt_bytes);
 
-  memcpy(out_sig, tmp, sizeof(tmp));
   return 0;
 }
 
@@ -385,8 +388,11 @@ int trine_codec_decode_signature_checked(
       sig == NULL)
     return -1;
 
-  Fq responses_tmp[(size_t)TRINE_K * (size_t)TRINE_n];
-  uint8_t base_seeds_tmp[TRINE_BASE_SEED_BYTES];
+  const size_t response_count = (size_t)TRINE_K * (size_t)TRINE_n;
+  Fq *responses_tmp = malloc(response_count * sizeof(*responses_tmp));
+  if (responses_tmp == NULL)
+    return -1;
+
   uint8_t digest_tmp[TRINE_digest_bytes];
   uint8_t salt_tmp[TRINE_salt_bytes];
 
@@ -395,22 +401,25 @@ int trine_codec_decode_signature_checked(
           (size_t)TRINE_K * (size_t)TRINE_n,
           sig + TRINE_RESPONSE_OFFSET,
           TRINE_RESPONSE_BYTES) != 0)
+  {
+    free(responses_tmp);
     return -1;
+  }
 
   memcpy(
-      base_seeds_tmp,
+      out_base_seeds,
       sig + TRINE_BASE_SEED_OFFSET,
-      sizeof(base_seeds_tmp));
+      TRINE_BASE_SEED_BYTES);
   memcpy(digest_tmp, sig + TRINE_DIGEST_OFFSET, sizeof(digest_tmp));
   memcpy(salt_tmp, sig + TRINE_SALT_OFFSET, sizeof(salt_tmp));
 
   memcpy(
       out_responses,
       responses_tmp,
-      sizeof(responses_tmp));
-  memcpy(out_base_seeds, base_seeds_tmp, sizeof(base_seeds_tmp));
+      response_count * sizeof(*responses_tmp));
   memcpy(out_digest, digest_tmp, sizeof(digest_tmp));
   memcpy(out_salt, salt_tmp, sizeof(salt_tmp));
+  free(responses_tmp);
 
   return 0;
 }

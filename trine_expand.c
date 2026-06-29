@@ -121,7 +121,6 @@ int trine_expand_base_form(
   if (n < 1 || n > TRINE_n)
     return -1;
 
-  Fq tmp[triform_element_count(n)];
   keccak_state shake;
 
   init_domain_shake(
@@ -132,9 +131,8 @@ int trine_expand_base_form(
       TRINE_public_seed_bytes);
 
   for (size_t i = 0; i < triform_element_count(n); i++)
-    tmp[i] = rnd_GF(&shake);
+    out_base_form[i] = rnd_GF(&shake);
 
-  memcpy(out_base_form, tmp, sizeof(tmp));
   return 0;
 }
 
