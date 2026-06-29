@@ -32,6 +32,14 @@ int crypto_sign(
     const unsigned char *sk
   );
 
+int crypto_sign_verify(
+    const unsigned char *sig,
+    unsigned long long siglen,
+    const unsigned char *m,
+    unsigned long long mlen,
+    const unsigned char *pk
+  );
+
 int crypto_sign_open(
     unsigned char *m, unsigned long long *mlen,
     const unsigned char *sm, unsigned long long smlen,

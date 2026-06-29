@@ -474,11 +474,11 @@ cleanup:
   return result;
 }
 
-int crypto_sign_open(
-    unsigned char *m,
-    unsigned long long *mlen,
-    const unsigned char *sm,
-    unsigned long long smlen,
+int crypto_sign_verify(
+    const unsigned char *sig,
+    unsigned long long siglen,
+    const unsigned char *m,
+    unsigned long long mlen,
     const unsigned char *pk)
 {
   int result = -1;
@@ -499,18 +499,16 @@ int crypto_sign_open(
   uint8_t *base_seeds = NULL;
   uint8_t *encoded_psi = NULL;
 
-  if (mlen != NULL)
-    *mlen = 0;
-
-  if (m == NULL || mlen == NULL || sm == NULL || pk == NULL)
+  if (sig == NULL || pk == NULL)
     goto cleanup;
 
-  if (smlen < TRINE_SIG_BYTES)
+  if (m == NULL && mlen != 0u)
     goto cleanup;
 
-  if (trine_message_len_to_size(
-          &message_len,
-          smlen - (unsigned long long)TRINE_SIG_BYTES) != 0)
+  if (siglen != (unsigned long long)TRINE_SIG_BYTES)
+    goto cleanup;
+
+  if (trine_message_len_to_size(&message_len, mlen) != 0)
     goto cleanup;
 
   base_form = trine_alloc_array(form_elements, sizeof(*base_form));
@@ -545,7 +543,7 @@ int crypto_sign_open(
           base_seeds,
           digest,
           salt,
-          sm,
+          sig,
           TRINE_SIG_BYTES) != 0)
     goto cleanup;
 
@@ -560,11 +558,10 @@ int crypto_sign_open(
     goto cleanup;
 
   keccak_state transcript;
-  const unsigned char *message = sm + TRINE_SIG_BYTES;
 
   shake256_init(&transcript);
   if (message_len != 0u)
-    shake256_absorb(&transcript, message, message_len);
+    shake256_absorb(&transcript, m, message_len);
 
   size_t response_index = 0;
   size_t base_seed_index = 0;
@@ -631,9 +628,6 @@ int crypto_sign_open(
   if (!trine_challenges_equal(challenges, challenges_check))
     goto cleanup;
 
-  if (message_len != 0u)
-    memmove(m, message, message_len);
-  *mlen = (unsigned long long)message_len;
   result = 0;
 
 cleanup:
@@ -649,4 +643,42 @@ cleanup:
   free(psi);
   free(encoded_psi);
   return result;
+}
+
+int crypto_sign_open(
+    unsigned char *m,
+    unsigned long long *mlen,
+    const unsigned char *sm,
+    unsigned long long smlen,
+    const unsigned char *pk)
+{
+  size_t message_len = 0;
+
+  if (mlen != NULL)
+    *mlen = 0;
+
+  if (m == NULL || mlen == NULL || sm == NULL || pk == NULL)
+    return -1;
+
+  if (smlen < TRINE_SIG_BYTES)
+    return -1;
+
+  if (trine_message_len_to_size(
+          &message_len,
+          smlen - (unsigned long long)TRINE_SIG_BYTES) != 0)
+    return -1;
+
+  const unsigned char *message = sm + TRINE_SIG_BYTES;
+  if (crypto_sign_verify(
+          sm,
+          TRINE_SIG_BYTES,
+          message,
+          (unsigned long long)message_len,
+          pk) != 0)
+    return -1;
+
+  if (message_len != 0u)
+    memmove(m, message, message_len);
+  *mlen = (unsigned long long)message_len;
+  return 0;
 }
