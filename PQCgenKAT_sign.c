@@ -29,7 +29,7 @@ char    AlgName[] = "My Alg Name";
 int
 main()
 {
-    char                fn_req[32], fn_rsp[32];
+    char                fn_req[256], fn_rsp[256];
     FILE                *fp_req, *fp_rsp;
     unsigned char       seed[48];
     unsigned char       msg[3300];
@@ -38,18 +38,32 @@ main()
     unsigned long long  mlen, smlen, mlen1;
     int                 count;
     int                 done;
-    unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
+    unsigned char       *pk, *sk;
     int                 ret_val;
     
     // Create the REQUEST file
-    sprintf(fn_req, "PQCsignKAT_%s.req", CRYPTO_ALGNAME); // changed from CRYPTO_SECRETKEYBYTES to CRYPTO_ALGNAME
+    pk = (unsigned char *)calloc(CRYPTO_PUBLICKEYBYTES, sizeof(unsigned char));
+    sk = (unsigned char *)calloc(CRYPTO_SECRETKEYBYTES, sizeof(unsigned char));
+    if (pk == NULL || sk == NULL) {
+        printf("ERROR: unable to allocate key buffers\n");
+        free(pk);
+        free(sk);
+        return KAT_CRYPTO_FAILURE;
+    }
+
+    snprintf(fn_req, sizeof(fn_req), "PQCsignKAT_%s.req", CRYPTO_ALGNAME);
     if ( (fp_req = fopen(fn_req, "w")) == NULL ) {
         printf("Couldn't open <%s> for write\n", fn_req);
+        free(pk);
+        free(sk);
         return KAT_FILE_OPEN_ERROR;
     }
-    sprintf(fn_rsp, "PQCsignKAT_%s.rsp", CRYPTO_ALGNAME); // changed from CRYPTO_SECRETKEYBYTES to CRYPTO_ALGNAME
+    snprintf(fn_rsp, sizeof(fn_rsp), "PQCsignKAT_%s.rsp", CRYPTO_ALGNAME);
     if ( (fp_rsp = fopen(fn_rsp, "w")) == NULL ) {
         printf("Couldn't open <%s> for write\n", fn_rsp);
+        fclose(fp_req);
+        free(pk);
+        free(sk);
         return KAT_FILE_OPEN_ERROR;
     }
     
@@ -108,6 +122,15 @@ main()
         m = (unsigned char *)calloc(mlen, sizeof(unsigned char));
         m1 = (unsigned char *)calloc(mlen+CRYPTO_BYTES, sizeof(unsigned char));
         sm = (unsigned char *)calloc(mlen+CRYPTO_BYTES, sizeof(unsigned char));
+        if (m == NULL || m1 == NULL || sm == NULL) {
+            printf("ERROR: unable to allocate message buffers\n");
+            free(m);
+            free(m1);
+            free(sm);
+            free(pk);
+            free(sk);
+            return KAT_CRYPTO_FAILURE;
+        }
         
         if ( !ReadHex(fp_req, m, (int)mlen, "msg = ") ) {
             printf("ERROR: unable to read 'msg' from <%s>\n", fn_req);
@@ -154,6 +177,8 @@ main()
     
     fclose(fp_req);
     fclose(fp_rsp);
+    free(pk);
+    free(sk);
 
     return KAT_SUCCESS;
 }
@@ -260,4 +285,3 @@ fprintBstr(FILE *fp, char *S, unsigned char *A, unsigned long long L)
 
 	fprintf(fp, "\n");
 }
-

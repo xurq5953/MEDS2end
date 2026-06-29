@@ -365,7 +365,7 @@ static void init_context(speed_ctx_t *ctx)
 
 int main(int argc, char **argv)
 {
-  speed_ctx_t ctx;
+  speed_ctx_t *ctx = NULL;
 
   if (argc > 1)
     speed_rounds = atoi(argv[1]);
@@ -392,7 +392,15 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  init_context(&ctx);
+  ctx = calloc(1u, sizeof(*ctx));
+  if (ctx == NULL)
+  {
+    fprintf(stderr, "failed to allocate speed context\n");
+    free(cycles);
+    return EXIT_FAILURE;
+  }
+
+  init_context(ctx);
 
   printf("name: %s\n", CRYPTO_ALGNAME);
   printf(
@@ -407,46 +415,48 @@ int main(int argc, char **argv)
   printf("sig: %d bytes\n", TRINE_SIG_BYTES);
   printf("rounds: core=%d protocol=%d\n\n", speed_rounds, protocol_rounds);
 
-  if (time_function("crypto_sign_keypair", bench_keypair, &ctx, protocol_rounds) != 0)
+  if (time_function("crypto_sign_keypair", bench_keypair, ctx, protocol_rounds) != 0)
     goto failure;
-  if (time_function("crypto_sign", bench_sign, &ctx, protocol_rounds) != 0)
+  if (time_function("crypto_sign", bench_sign, ctx, protocol_rounds) != 0)
     goto failure;
-  if (time_function("crypto_sign_open", bench_open, &ctx, protocol_rounds) != 0)
-    goto failure;
-
-  if (time_function("GF_add", bench_gf_add, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("GF_mul", bench_gf_mul, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("GF_inv", bench_gf_inv, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("pmod_mat_mul", bench_mat_mul, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("pmod_mat_vec_mul", bench_mat_vec_mul, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("pmod_mat_rank_vartime", bench_mat_rank, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("pmod_mat_inv_vartime", bench_mat_inv, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("pmod_mat_right_kernel_corank1_vartime", bench_right_kernel, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("triform_matrix_at_w", bench_triform_matrix_at_w, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("triform_phi_u", bench_triform_phi_u, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("triform_phi_v", bench_triform_phi_v, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("triform_eval", bench_triform_eval, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("triform_action_pullback", bench_triform_action_pullback, &ctx, speed_rounds) != 0)
-    goto failure;
-  if (time_function("canonical_build_uvw_vartime", bench_builduvw, &ctx, speed_rounds) != 0)
+  if (time_function("crypto_sign_open", bench_open, ctx, protocol_rounds) != 0)
     goto failure;
 
+  if (time_function("GF_add", bench_gf_add, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("GF_mul", bench_gf_mul, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("GF_inv", bench_gf_inv, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_mul", bench_mat_mul, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_vec_mul", bench_mat_vec_mul, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_rank_vartime", bench_mat_rank, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_inv_vartime", bench_mat_inv, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("pmod_mat_right_kernel_corank1_vartime", bench_right_kernel, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_matrix_at_w", bench_triform_matrix_at_w, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_phi_u", bench_triform_phi_u, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_phi_v", bench_triform_phi_v, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_eval", bench_triform_eval, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("triform_action_pullback", bench_triform_action_pullback, ctx, speed_rounds) != 0)
+    goto failure;
+  if (time_function("canonical_build_uvw_vartime", bench_builduvw, ctx, speed_rounds) != 0)
+    goto failure;
+
+  free(ctx);
   free(cycles);
   return EXIT_SUCCESS;
 
 failure:
+  free(ctx);
   free(cycles);
   return EXIT_FAILURE;
 }
