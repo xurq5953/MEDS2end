@@ -12,13 +12,19 @@ other purposes.
 #ifndef SIG_ALGORITHM_INSTANCE_H
 #define SIG_ALGORITHM_INSTANCE_H
 
+#include "api.h"
+
 // Set "OUTPUT_BLANK_TEST_VECTORS" as 0 to generate test vector files
 // Set "OUTPUT_BLANK_TEST_VECTORS" as 1 to generate blank template (default)
-#define OUTPUT_BLANK_TEST_VECTORS 1
+#define OUTPUT_BLANK_TEST_VECTORS 0
 
 // Set "ALGORITHM_INSTANCE" as your algorithm instance name (no more than 64 bytes)
 // Only letters, numbers, '-' or '_' are permitted
-#define ALGORITHM_INSTANCE "AlgorithmInstance"
+#ifndef TRINE_ALGORITHM_INSTANCE
+#define TRINE_ALGORITHM_INSTANCE CRYPTO_ALGNAME
+#endif
+
+#define ALGORITHM_INSTANCE TRINE_ALGORITHM_INSTANCE
 
 #ifdef __cplusplus
 extern "C"

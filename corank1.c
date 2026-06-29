@@ -20,12 +20,12 @@ static int vector_is_nonzero(
 int corank1_cal_vartime(
     Fq *out_u,
     const Fq *M,
-    keccak_state *shake,
+    trine_xof_state *xof,
     int n)
 {
   if (out_u == NULL ||
       M == NULL ||
-      shake == NULL)
+      xof == NULL)
     return -1;
 
   if (n < 1 || n > TRINE_n)
@@ -37,7 +37,8 @@ int corank1_cal_vartime(
   for (;;)
   {
     for (int i = 0; i < n; i++)
-      candidate[i] = rnd_GF(shake);
+      if (rnd_GF(&candidate[i], xof) != 0)
+        return -1;
 
     if (!vector_is_nonzero(candidate, n))
       continue;

@@ -1,8 +1,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "fips202.h"
-
 #include "log.h"
 
 #include "util.h"
@@ -11,25 +9,47 @@
 #include "matrixelim.h"
 
 
-void XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, int num)
+int XOF(uint8_t **buf, size_t *length, const uint8_t *seed, size_t seed_len, int num)
 {
-  keccak_state shake;
+  trine_xof_state xof;
 
-  shake256_absorb_once(&shake, seed, seed_len);
+  if (buf == NULL || length == NULL || (seed == NULL && seed_len != 0u) || num < 0)
+    return -1;
+
+  if (trine_xof_init(&xof) != 0 ||
+      trine_xof_absorb(&xof, seed, seed_len) != 0 ||
+      trine_xof_finalize(&xof) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
 
   for (int i = 0; i < num; i++)
-    shake256_squeeze(buf[i], length[i], &shake);
+  {
+    if (trine_xof_squeeze(&xof, buf[i], length[i]) != 0)
+    {
+      trine_xof_release(&xof);
+      return -1;
+    }
+  }
+
+  trine_xof_release(&xof);
+  return 0;
 }
 
-Fq rnd_GF(keccak_state *shake)
+int rnd_GF(Fq *out, trine_xof_state *xof)
 {
   Fq val = TRINE_q;
+
+  if (out == NULL || xof == NULL)
+    return -1;
 
   while (val >= TRINE_q)
   {
     uint8_t data[sizeof(Fq)];
     
-    shake256_squeeze(data, sizeof(Fq), shake);
+    if (trine_xof_squeeze(xof, data, sizeof(Fq)) != 0)
+      return -1;
 
     val = 0;
     for (int i = 0; i < sizeof(Fq); i++)
@@ -38,17 +58,36 @@ Fq rnd_GF(keccak_state *shake)
     val = val & ((1 << TRINE_q_bits) - 1);
   }
 
-  return val;
+  *out = val;
+  return 0;
 }
 
-void rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
+int rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
 {
-  keccak_state shake;
-  shake256_absorb_once(&shake, seed, seed_len);
+  trine_xof_state xof;
+
+  if (M == NULL || (seed == NULL && seed_len != 0u) || M_r < 0 || M_c < M_r)
+    return -1;
+
+  if (trine_xof_init(&xof) != 0 ||
+      trine_xof_absorb(&xof, seed, seed_len) != 0 ||
+      trine_xof_finalize(&xof) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
 
   for (int r = 0; r < M_r; r++)
     for (int c = M_r; c < M_c; c++)
-      pmod_mat_set_entry(M, M_r, M_c, r, c, rnd_GF(&shake));
+    {
+      Fq sample;
+      if (rnd_GF(&sample, &xof) != 0)
+      {
+        trine_xof_release(&xof);
+        return -1;
+      }
+      pmod_mat_set_entry(M, M_r, M_c, r, c, sample);
+    }
 
   for (int r = 0; r < M_r; r++)
     for (int c = 0; c < M_r; c++)
@@ -56,24 +95,44 @@ void rnd_sys_mat(Fq *M, int M_r, int M_c, const uint8_t *seed, size_t seed_len)
         pmod_mat_set_entry(M, M_r, M_c, r, c, 1);
       else
         pmod_mat_set_entry(M, M_r, M_c, r, c, 0);
+
+  trine_xof_release(&xof);
+  return 0;
 }
 
-void rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
+int rnd_inv_matrix(Fq *M, int M_r, int M_c, uint8_t *seed, size_t seed_len)
 {
-  if (M_r != M_c)
-    return;
+  if (M == NULL || (seed == NULL && seed_len != 0u) || M_r != M_c || M_r < 1)
+    return -1;
 
-  keccak_state shake;
-  shake256_absorb_once(&shake, seed, seed_len);
+  trine_xof_state xof;
+  if (trine_xof_init(&xof) != 0 ||
+      trine_xof_absorb(&xof, seed, seed_len) != 0 ||
+      trine_xof_finalize(&xof) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
 
   while (1)
   {
     for (int r = 0; r < M_r; r++)
       for (int c = 0; c < M_c; c++)
-        pmod_mat_set_entry(M, M_r, M_c, r, c, rnd_GF(&shake));
+      {
+        Fq sample;
+        if (rnd_GF(&sample, &xof) != 0)
+        {
+          trine_xof_release(&xof);
+          return -1;
+        }
+        pmod_mat_set_entry(M, M_r, M_c, r, c, sample);
+      }
 
     if (pmod_mat_is_invertible_vartime(M, M_r))
-      return;
+    {
+      trine_xof_release(&xof);
+      return 0;
+    }
   }
 }
 
@@ -93,17 +152,18 @@ static unsigned bit_length_u32(uint32_t value)
 
 static int sample_masked_le(
     uint32_t *out,
-    keccak_state *shake,
+    trine_xof_state *xof,
     unsigned bit_count)
 {
-  if (out == NULL || shake == NULL || bit_count == 0 || bit_count > 32)
+  if (out == NULL || xof == NULL || bit_count == 0 || bit_count > 32)
     return -1;
 
   const size_t byte_count = TRINE_CEIL_DIV((size_t)bit_count, 8u);
   uint8_t buf[4] = {0};
   uint32_t value = 0;
 
-  shake256_squeeze(buf, byte_count, shake);
+  if (trine_xof_squeeze(xof, buf, byte_count) != 0)
+    return -1;
 
   for (size_t i = 0; i < byte_count; i++)
     value |= (uint32_t)buf[i] << (8u * i);
@@ -129,13 +189,17 @@ int trine_parse_hash(
 
   trine_challenge_t parsed[TRINE_r];
   uint16_t raw[TRINE_r] = {0};
-  keccak_state shake;
+  trine_xof_state xof;
   const unsigned position_bits = bit_length_u32((uint32_t)(TRINE_r - 1));
   const unsigned value_bits = bit_length_u32((uint32_t)TRINE_X);
 
-  shake256_init(&shake);
-  shake256_absorb(&shake, digest, digest_len);
-  shake256_finalize(&shake);
+  if (trine_xof_init(&xof) != 0 ||
+      trine_xof_absorb(&xof, digest, digest_len) != 0 ||
+      trine_xof_finalize(&xof) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
 
   for (int selected = 0; selected < TRINE_K; selected++)
   {
@@ -144,15 +208,21 @@ int trine_parse_hash(
 
     do
     {
-      if (sample_masked_le(&position, &shake, position_bits) != 0)
+      if (sample_masked_le(&position, &xof, position_bits) != 0)
+      {
+        trine_xof_release(&xof);
         return -1;
+      }
     }
     while (position >= (uint32_t)TRINE_r || raw[position] != 0);
 
     do
     {
-      if (sample_masked_le(&value, &shake, value_bits) != 0)
+      if (sample_masked_le(&value, &xof, value_bits) != 0)
+      {
+        trine_xof_release(&xof);
         return -1;
+      }
     }
     while (value == 0 || value > (uint32_t)TRINE_X);
 
@@ -163,6 +233,7 @@ int trine_parse_hash(
     parsed[i] = (trine_challenge_t)(TRINE_X - raw[i]);
 
   memcpy(out, parsed, sizeof(parsed));
+  trine_xof_release(&xof);
   return 0;
 }
 

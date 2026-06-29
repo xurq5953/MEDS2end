@@ -6,7 +6,7 @@
 #include "api.h"
 #include "canonical.h"
 #include "corank1.h"
-#include "fips202.h"
+#include "hashkdf.h"
 #include "matrixmod.h"
 #include "params.h"
 #include "randombytes.h"
@@ -41,8 +41,8 @@ static void trine_store_u32_le(
   out[3] = (uint8_t)((value >> 24) & 0xffu);
 }
 
-static void trine_init_round_shake(
-    keccak_state *shake,
+static int trine_init_round_xof(
+    trine_xof_state *xof,
     const uint8_t round_seed[TRINE_round_seed_bytes],
     const uint8_t salt[TRINE_salt_bytes],
     uint32_t round_index)
@@ -51,15 +51,21 @@ static void trine_init_round_shake(
 
   trine_store_u32_le(round_index_le, round_index);
 
-  shake256_init(shake);
-  shake256_absorb(
-      shake,
-      TRINE_ROUND_DOMAIN,
-      sizeof(TRINE_ROUND_DOMAIN) - 1u);
-  shake256_absorb(shake, salt, TRINE_salt_bytes);
-  shake256_absorb(shake, round_seed, TRINE_round_seed_bytes);
-  shake256_absorb(shake, round_index_le, sizeof(round_index_le));
-  shake256_finalize(shake);
+  if (trine_xof_init(xof) != 0 ||
+      trine_xof_absorb(
+          xof,
+          TRINE_ROUND_DOMAIN,
+          sizeof(TRINE_ROUND_DOMAIN) - 1u) != 0 ||
+      trine_xof_absorb(xof, salt, TRINE_salt_bytes) != 0 ||
+      trine_xof_absorb(xof, round_seed, TRINE_round_seed_bytes) != 0 ||
+      trine_xof_absorb(xof, round_index_le, sizeof(round_index_le)) != 0 ||
+      trine_xof_finalize(xof) != 0)
+  {
+    trine_xof_release(xof);
+    return -1;
+  }
+
+  return 0;
 }
 
 static void *trine_alloc_array(
@@ -115,7 +121,7 @@ static int trine_challenges_equal(
 }
 
 static int trine_absorb_canonical_form(
-    keccak_state *transcript,
+    trine_hash_state *transcript,
     uint8_t *encoded_buffer,
     const Fq *psi)
 {
@@ -126,8 +132,7 @@ static int trine_absorb_canonical_form(
           TRINE_n) != 0)
     return -1;
 
-  shake256_absorb(transcript, encoded_buffer, TRINE_TRIFORM_BYTES);
-  return 0;
+  return trine_hash_absorb(transcript, encoded_buffer, TRINE_TRIFORM_BYTES);
 }
 
 static int trine_derive_round_commitment_vartime(
@@ -144,15 +149,19 @@ static int trine_derive_round_commitment_vartime(
       salt == NULL)
     return -1;
 
-  keccak_state shake;
+  trine_xof_state xof;
   Fq a_tmp[TRINE_n];
 
-  trine_init_round_shake(&shake, round_seed, salt, round_index);
+  if (trine_init_round_xof(&xof, round_seed, salt, round_index) != 0)
+    return -1;
 
   for (;;)
   {
-    if (corank1_cal_vartime(a_tmp, base_form, &shake, TRINE_n) != 0)
+    if (corank1_cal_vartime(a_tmp, base_form, &xof, TRINE_n) != 0)
+    {
+      trine_xof_release(&xof);
       return -1;
+    }
 
     if (canonical_form_vartime(out_psi, base_form, a_tmp, TRINE_n) == 0)
     {
@@ -160,6 +169,7 @@ static int trine_derive_round_commitment_vartime(
         memcpy(out_a, a_tmp, sizeof(a_tmp));
 
       trine_secure_clear(a_tmp, sizeof(a_tmp));
+      trine_xof_release(&xof);
       return 0;
     }
   }
@@ -196,7 +206,7 @@ int crypto_sign_keypair(
       pk_tmp == NULL)
     goto cleanup;
 
-  if (randombytes(secret_seed, sizeof(secret_seed)) != RNG_SUCCESS)
+  if (randombytes(secret_seed, sizeof(secret_seed)) != RANDOMBYTES_SUCCESS)
     goto cleanup;
 
   if (trine_expand_public_seed(public_seed, secret_seed) != 0)
@@ -285,6 +295,8 @@ int crypto_sign(
   uint8_t *base_seeds = NULL;
   uint8_t *encoded_psi = NULL;
   uint8_t *signature_tmp = NULL;
+  trine_hash_state transcript;
+  int transcript_active = 0;
 
   if (smlen != NULL)
     *smlen = 0;
@@ -337,18 +349,20 @@ int crypto_sign(
   if (trine_expand_base_form(base_form, public_seed, TRINE_n) != 0)
     goto cleanup;
 
-  if (randombytes(salt, sizeof(salt)) != RNG_SUCCESS)
+  if (randombytes(salt, sizeof(salt)) != RANDOMBYTES_SUCCESS)
     goto cleanup;
 
   if (randombytes(
           round_seeds,
-          (unsigned long long)TRINE_r * TRINE_round_seed_bytes) != RNG_SUCCESS)
+          (unsigned long long)TRINE_r * TRINE_round_seed_bytes) != RANDOMBYTES_SUCCESS)
     goto cleanup;
 
-  keccak_state transcript;
-  shake256_init(&transcript);
-  if (message_len != 0u)
-    shake256_absorb(&transcript, m, message_len);
+  if (trine_hash_init(&transcript) != 0)
+    goto cleanup;
+  transcript_active = 1;
+  if (message_len != 0u &&
+      trine_hash_absorb(&transcript, m, message_len) != 0)
+    goto cleanup;
 
   for (int round = 0; round < TRINE_r; round++)
   {
@@ -369,8 +383,8 @@ int crypto_sign(
       goto cleanup;
   }
 
-  shake256_finalize(&transcript);
-  shake256_squeeze(digest, sizeof(digest), &transcript);
+  if (trine_hash_finalize(&transcript, digest, sizeof(digest)) != 0)
+    goto cleanup;
 
   if (trine_parse_hash(
           digest,
@@ -450,6 +464,8 @@ int crypto_sign(
   result = 0;
 
 cleanup:
+  if (transcript_active)
+    trine_hash_release(&transcript);
   trine_secure_clear(secret_seed, sizeof(secret_seed));
   trine_secure_clear(digest, sizeof(digest));
   trine_secure_clear(salt, sizeof(salt));
@@ -498,6 +514,8 @@ int crypto_sign_verify(
   Fq *psi = NULL;
   uint8_t *base_seeds = NULL;
   uint8_t *encoded_psi = NULL;
+  trine_hash_state transcript;
+  int transcript_active = 0;
 
   if (sig == NULL || pk == NULL)
     goto cleanup;
@@ -557,11 +575,12 @@ int crypto_sign_verify(
   if (!trine_challenges_valid(challenges))
     goto cleanup;
 
-  keccak_state transcript;
-
-  shake256_init(&transcript);
-  if (message_len != 0u)
-    shake256_absorb(&transcript, m, message_len);
+  if (trine_hash_init(&transcript) != 0)
+    goto cleanup;
+  transcript_active = 1;
+  if (message_len != 0u &&
+      trine_hash_absorb(&transcript, m, message_len) != 0)
+    goto cleanup;
 
   size_t response_index = 0;
   size_t base_seed_index = 0;
@@ -615,8 +634,8 @@ int crypto_sign_verify(
       base_seed_index != TRINE_BASE_SEED_COUNT)
     goto cleanup;
 
-  shake256_finalize(&transcript);
-  shake256_squeeze(digest_check, sizeof(digest_check), &transcript);
+  if (trine_hash_finalize(&transcript, digest_check, sizeof(digest_check)) != 0)
+    goto cleanup;
 
   if (trine_parse_hash(
           digest_check,
@@ -631,6 +650,8 @@ int crypto_sign_verify(
   result = 0;
 
 cleanup:
+  if (transcript_active)
+    trine_hash_release(&transcript);
   trine_secure_clear(digest, sizeof(digest));
   trine_secure_clear(digest_check, sizeof(digest_check));
   trine_secure_clear(salt, sizeof(salt));

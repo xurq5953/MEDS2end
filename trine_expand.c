@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "fips202.h"
+#include "hashkdf.h"
 #include "matrixelim.h"
 #include "triform.h"
 #include "util.h"
@@ -50,8 +50,8 @@ static void store_u32_le(
   out[3] = (uint8_t)((value >> 24) & 0xffu);
 }
 
-static void init_domain_shake(
-    keccak_state *shake,
+static int init_domain_xof(
+    trine_xof_state *xof,
     uint8_t purpose,
     uint32_t index,
     const uint8_t *seed,
@@ -61,15 +61,21 @@ static void init_domain_shake(
 
   store_u32_le(index_le, index);
 
-  shake256_init(shake);
-  shake256_absorb(
-      shake,
-      TRINE_EXPAND_PREFIX,
-      sizeof(TRINE_EXPAND_PREFIX) - 1u);
-  shake256_absorb(shake, &purpose, 1u);
-  shake256_absorb(shake, index_le, sizeof(index_le));
-  shake256_absorb(shake, seed, seed_len);
-  shake256_finalize(shake);
+  if (trine_xof_init(xof) != 0 ||
+      trine_xof_absorb(
+          xof,
+          TRINE_EXPAND_PREFIX,
+          sizeof(TRINE_EXPAND_PREFIX) - 1u) != 0 ||
+      trine_xof_absorb(xof, &purpose, 1u) != 0 ||
+      trine_xof_absorb(xof, index_le, sizeof(index_le)) != 0 ||
+      trine_xof_absorb(xof, seed, seed_len) != 0 ||
+      trine_xof_finalize(xof) != 0)
+  {
+    trine_xof_release(xof);
+    return -1;
+  }
+
+  return 0;
 }
 
 static int ranges_overlap(
@@ -96,15 +102,22 @@ int trine_expand_public_seed(
     return -1;
 
   uint8_t tmp[TRINE_public_seed_bytes];
-  keccak_state shake;
+  trine_xof_state xof;
 
-  init_domain_shake(
-      &shake,
+  if (init_domain_xof(
+      &xof,
       TRINE_PURPOSE_PUBLIC_SEED,
       0,
       secret_seed,
-      TRINE_secret_seed_bytes);
-  shake256_squeeze(tmp, sizeof(tmp), &shake);
+      TRINE_secret_seed_bytes) != 0)
+    return -1;
+
+  if (trine_xof_squeeze(&xof, tmp, sizeof(tmp)) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
+  trine_xof_release(&xof);
 
   memcpy(out_public_seed, tmp, sizeof(tmp));
   return 0;
@@ -121,18 +134,26 @@ int trine_expand_base_form(
   if (n < 1 || n > TRINE_n)
     return -1;
 
-  keccak_state shake;
+  trine_xof_state xof;
 
-  init_domain_shake(
-      &shake,
+  if (init_domain_xof(
+      &xof,
       TRINE_PURPOSE_BASE_FORM,
       0,
       public_seed,
-      TRINE_public_seed_bytes);
+      TRINE_public_seed_bytes) != 0)
+    return -1;
 
   for (size_t i = 0; i < triform_element_count(n); i++)
-    out_base_form[i] = rnd_GF(&shake);
+  {
+    if (rnd_GF(&out_base_form[i], &xof) != 0)
+    {
+      trine_xof_release(&xof);
+      return -1;
+    }
+  }
 
+  trine_xof_release(&xof);
   return 0;
 }
 
@@ -165,14 +186,22 @@ int trine_expand_secret_matrix_pair_vartime(
     return -1;
 
   uint8_t matrix_seed[TRINE_secret_seed_bytes];
-  keccak_state shake;
+  trine_xof_state xof;
   Fq matrix_tmp[matrix_elements];
   Fq inverse_tmp[matrix_elements];
 
-  init_domain_shake(&shake, purpose, index, secret_seed, TRINE_secret_seed_bytes);
-  shake256_squeeze(matrix_seed, sizeof(matrix_seed), &shake);
+  if (init_domain_xof(&xof, purpose, index, secret_seed, TRINE_secret_seed_bytes) != 0)
+    return -1;
 
-  rnd_inv_matrix(matrix_tmp, n, n, matrix_seed, sizeof(matrix_seed));
+  if (trine_xof_squeeze(&xof, matrix_seed, sizeof(matrix_seed)) != 0)
+  {
+    trine_xof_release(&xof);
+    return -1;
+  }
+  trine_xof_release(&xof);
+
+  if (rnd_inv_matrix(matrix_tmp, n, n, matrix_seed, sizeof(matrix_seed)) != 0)
+    return -1;
 
   if (out_inverse != NULL &&
       pmod_mat_inv_vartime(inverse_tmp, matrix_tmp, n) != 0)

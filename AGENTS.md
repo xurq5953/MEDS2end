@@ -117,10 +117,13 @@ Inspect the actual repository before editing. Expected core files include:
 - `trine_codec.c`, `trine_codec.h`: strict TRINE field, form, key, and signature codecs;
 - `util.c`, `util.h`: XOF, random field elements, random matrices, challenge parsing, and legacy transformation helpers;
 - `bitstream.c`, `bitstream.h`: field-element serialization;
-- `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
-- `randombytes.c`, `randombytes.h`: randomness interface;
+- `hashkdf.c`, `hashkdf.h`: hash/XOF adapter layer selected with `USE_SHA3` or `USE_ICCS`;
+- `fips202.c`, `fips202.h`: SHAKE/XOF implementation for normal targets;
+- `randombytes.c`, `randombytes.h`: normal randomness implementation and shared `randombytes()` interface;
+- `randombytes_iccs.c`: ICCS DRNG adapter for the shared `randombytes()` interface;
+- `iccs/KAT_SIG.c`: ICCS signature KAT runner;
+- `iccs/SIG_AlgorithmInstance.c`, `iccs/SIG_AlgorithmInstance.h`: ICCS signature API adapter;
 - `test_speed/`: cycle-count speed tests for protocol and core operators;
-- `PQCgenKAT_sign.c`: KAT generator;
 - `Makefile`;
 - `CMakeLists.txt`.
 
@@ -911,8 +914,12 @@ util.h
 util.c
 meds.c
 test_speed/test_speed.c
+hashkdf.c
+hashkdf.h
+randombytes_iccs.c
+iccs/SIG_AlgorithmInstance.c
+iccs/SIG_AlgorithmInstance.h
 CMakeLists.txt
-PQCgenKAT_sign.c
 AGENTS.md
 ```
 
@@ -933,22 +940,38 @@ cross-triform public-key bit packing
 CMake must build separate objects for each parameter set. The expected production targets are:
 
 ```text
-meds2endgen_balanced_i
-meds2endgen_balanced_iii
-meds2endgen_balanced_v
-meds2endgen_shortsig_i
-meds2endgen_shortsig_iii
-meds2endgen_shortsig_v
-
 kat_<suffix>
 speed_<suffix>
 ```
+
+Normal production libraries and speed targets must use:
+
+```text
+hashkdf.c with USE_SHA3
+fips202.c
+randombytes.c
+```
+
+ICCS KAT targets must use:
+
+```text
+hashkdf.c with USE_ICCS
+randombytes_iccs.c
+iccs/KAT_SIG.c
+iccs/SIG_AlgorithmInstance.c
+iccs/drng.c
+iccs/auxfunc.c
+```
+
+`kat_<suffix>` targets are ICCS signature KAT executables. `speed_<suffix>` targets are normal SHA3/randombytes speed executables. All six KAT targets and all six speed targets are part of the default CMake `all` build. Do not add `run_*`, `meds2endgen_*`, or extra aggregate targets for this phase.
+
+Algorithm core files must not directly include `iccs/*.h`, call `pseudoXOF()`, `sm3hash()`, `pseudohash()`, reference `drng_algorithm`, or call `get_random_number()`. Those symbols belong only in `hashkdf.c`, `randombytes_iccs.c`, and ICCS runner/adapter files.
 
 Use:
 
 ```sh
 cmake -S . -B cmake-build-all -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build-all --target all_parameter_sets -j
+cmake --build cmake-build-all -j
 ```
 
 Production branches must not add large `tests/**` suites. Detailed all-parameter tests belong on `test/all-parameter-sets`.
@@ -1115,7 +1138,7 @@ triform_phi_u()
 pmod_mat_rank_vartime()
 ```
 
-The caller owns SHAKE initialization and domain separation. `Corank1Cal` consumes and advances the supplied `keccak_state`.
+The caller owns XOF initialization and domain separation. `Corank1Cal` consumes and advances the supplied `trine_xof_state`.
 
 For valid input, `corank1_cal_vartime()` has no hidden attempt bound. If the input form has no corank-one point, Algorithm 1 does not terminate.
 
@@ -1666,17 +1689,20 @@ make clean
 make
 ```
 
-Run KAT:
+Build all KAT and speed targets:
 
 ```sh
-make KAT
+make
 ```
 
 The current default build is expected to include:
 
 ```text
-PQCgenKAT_sign
-build/test_speed
+build/p1/iccs/KAT_SIG
+build/p1/sha3/speed
+...
+build/p6/iccs/KAT_SIG
+build/p6/sha3/speed
 ```
 
 Additional test executables may be conditionally present.
@@ -1708,13 +1734,15 @@ The production branch should retain:
 
 - production source code;
 - speed test code under `test_speed/`;
-- KAT generator;
+- ICCS KAT runner and signature adapter;
 - essential build files.
 
-`master` should contain only KAT and speed test entry points:
+`master` should contain only ICCS KAT and speed test entry points:
 
 ```text
-PQCgenKAT_sign.c
+iccs/KAT_SIG.c
+iccs/SIG_AlgorithmInstance.c
+iccs/SIG_AlgorithmInstance.h
 test_speed/**
 ```
 

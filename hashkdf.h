@@ -1,48 +1,79 @@
-#ifndef hashkdf_h
-#define hashkdf_h
+#ifndef HASHKDF_H
+#define HASHKDF_H
+
 #include <stddef.h>
 #include <stdint.h>
-#include "fips202.h"
-#include "auxfunc.h"
 
-#ifdef USE_SHA3
-#define KDF128RATE SHAKE128_RATE
-#define KDF256RATE SHAKE256_RATE
-#define KDF512RATE SHAKE512_RATE
-typedef uint64_t kdfstate[25];
-#elif defined(USE_ICCS)
-#define KDF128RATE 32
-#define KDF256RATE 32
-#define KDF512RATE 32
-
-#define ICCS_KDF_MAX_INPUT_BYTES 65
-
-typedef struct {
-    uint8_t input[ICCS_KDF_MAX_INPUT_BYTES];
-    size_t input_len;
-    uint32_t counter;
-} kdfstate;
+#if defined(USE_SHA3) == defined(USE_ICCS)
+#error "Define exactly one of USE_SHA3 or USE_ICCS"
 #endif
 
+#ifdef USE_SHA3
+#include "fips202.h"
+#endif
 
+#ifdef USE_ICCS
+#include "auxfunc.h"
+#endif
 
-void kdf128(uint8_t *out, int outlen, uint8_t *in, int inlen);
-void kdf256(uint8_t *out, int outlen, uint8_t *in, int inlen);
-void kdf512(uint8_t* out, int outlen, uint8_t* in, int inlen);
-void hash128(uint8_t* out, uint8_t* in, int inlen);
-void hash256(uint8_t *out, uint8_t *in, int inlen);
-void hash512(uint8_t *out, uint8_t *in, int inlen);
-void hash1024(uint8_t* out, uint8_t* in, int inlen);
+typedef struct
+{
+#ifdef USE_SHA3
+  keccak_state shake;
+  int finalized;
+#else
+  uint8_t *input;
+  size_t input_len;
+  size_t input_capacity;
+  uint8_t *output_cache;
+  size_t output_capacity;
+  size_t output_offset;
+  int finalized;
+  int failed;
+#endif
+} trine_xof_state;
 
+typedef struct
+{
+#ifdef USE_SHA3
+  keccak_state shake;
+  int finalized;
+#else
+  uint8_t *input;
+  size_t input_len;
+  size_t input_capacity;
+  int finalized;
+  int failed;
+#endif
+} trine_hash_state;
 
-void kdf128_absorb(kdfstate* state, const uint8_t* input, int inputByteLen);
-void kdf128_squeezeblocks(uint8_t* output, int nblocks, kdfstate* state);
+int trine_xof_init(trine_xof_state *state);
+int trine_xof_absorb(
+    trine_xof_state *state,
+    const uint8_t *input,
+    size_t input_len);
+int trine_xof_finalize(trine_xof_state *state);
+int trine_xof_squeeze(
+    trine_xof_state *state,
+    uint8_t *output,
+    size_t output_len);
+void trine_xof_release(trine_xof_state *state);
 
-void kdf256_absorb(kdfstate * state, const uint8_t *input, int inputByteLen);
-void kdf256_squeezeblocks(uint8_t *output, int nblocks, kdfstate * state);
+int trine_xof_once(
+    uint8_t *output,
+    size_t output_len,
+    const uint8_t *input,
+    size_t input_len);
 
-void kdf512_absorb(kdfstate* state, const uint8_t* input, int inputByteLen);
-void kdf512_squeezeblocks(uint8_t* output, int nblocks, kdfstate* state);
-
+int trine_hash_init(trine_hash_state *state);
+int trine_hash_absorb(
+    trine_hash_state *state,
+    const uint8_t *input,
+    size_t input_len);
+int trine_hash_finalize(
+    trine_hash_state *state,
+    uint8_t *output,
+    size_t output_len);
+void trine_hash_release(trine_hash_state *state);
 
 #endif

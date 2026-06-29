@@ -6,15 +6,38 @@ NIST-developed software is expressly provided "AS IS." NIST MAKES NO WARRANTY OF
 You are solely responsible for determining the appropriateness of using and distributing the software and you assume all risks associated with its use, including but not limited to the risks and costs of program errors, compliance with applicable laws, damage to or loss of data, programs or equipment, and the unavailability or interruption of operation. This software is not intended to be used in any situation where a failure could cause risk of injury or damage to property. The software developed by NIST employees is not subject to copyright protection within the United States.
 */
 
+#include <stdlib.h>
 #include <string.h>
-#include "rng.h"
+#include "randombytes.h"
 #include <openssl/conf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 
+typedef struct {
+    unsigned char   buffer[16];
+    int             buffer_pos;
+    unsigned long   length_remaining;
+    unsigned char   key[32];
+    unsigned char   ctr[16];
+} AES_XOF_struct;
+
+typedef struct {
+    unsigned char   Key[32];
+    unsigned char   V[16];
+    int             reseed_counter;
+} AES256_CTR_DRBG_struct;
+
+#define RNG_SUCCESS RANDOMBYTES_SUCCESS
+#define RNG_BAD_MAXLEN RANDOMBYTES_BAD_LENGTH
+#define RNG_BAD_OUTBUF RANDOMBYTES_BAD_OUTPUT
+#define RNG_BAD_REQ_LEN RANDOMBYTES_BAD_LENGTH
+
 AES256_CTR_DRBG_struct  DRBG_ctx;
 
 void    AES256_ECB(unsigned char *key, unsigned char *ctr, unsigned char *buffer);
+void    AES256_CTR_DRBG_Update(unsigned char *provided_data,
+                                unsigned char *Key,
+                                unsigned char *V);
 
 /*
  seedexpander_init()
@@ -229,8 +252,6 @@ AES256_CTR_DRBG_Update(unsigned char *provided_data,
     memcpy(Key, temp, 32);
     memcpy(V, temp+32, 16);
 }
-
-
 
 
 

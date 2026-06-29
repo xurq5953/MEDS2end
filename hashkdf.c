@@ -1,185 +1,361 @@
 #include "hashkdf.h"
 
-#include <stddef.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
+static void trine_clear(void *ptr, size_t len)
+{
+  volatile uint8_t *bytes = (volatile uint8_t *)ptr;
+
+  if (ptr == NULL)
+    return;
+
+  for (size_t i = 0; i < len; i++)
+    bytes[i] = 0;
+}
 
 #ifdef USE_ICCS
-
-static void store32_be(uint8_t out[4], uint32_t x)
+static int size_to_bits_ull(
+    unsigned long long *out_bits,
+    size_t byte_len)
 {
-	out[0] = (uint8_t)(x >> 24);
-	out[1] = (uint8_t)(x >> 16);
-	out[2] = (uint8_t)(x >> 8);
-	out[3] = (uint8_t)x;
+  if (out_bits == NULL)
+    return -1;
+
+  if (byte_len > (size_t)(ULLONG_MAX / 8u))
+    return -1;
+
+  *out_bits = (unsigned long long)byte_len * 8u;
+  return 0;
 }
 
-static void iccs_kdf_absorb(kdfstate *state,
-							const uint8_t *input,
-							size_t input_len)
+static int grow_buffer(
+    uint8_t **buffer,
+    size_t *capacity,
+    size_t required)
 {
+  size_t new_capacity;
+  uint8_t *new_buffer;
 
-	memcpy(state->input, input, input_len);
-	state->input_len = input_len;
+  if (buffer == NULL || capacity == NULL)
+    return -1;
 
-	state->counter = 1;
+  if (required <= *capacity)
+    return 0;
+
+  new_capacity = *capacity == 0u ? 64u : *capacity;
+  while (new_capacity < required)
+  {
+    if (new_capacity > SIZE_MAX / 2u)
+    {
+      new_capacity = required;
+      break;
+    }
+    new_capacity *= 2u;
+  }
+
+  new_buffer = (uint8_t *)realloc(*buffer, new_capacity);
+  if (new_buffer == NULL)
+    return -1;
+
+  if (new_capacity > *capacity)
+    memset(new_buffer + *capacity, 0, new_capacity - *capacity);
+
+  *buffer = new_buffer;
+  *capacity = new_capacity;
+  return 0;
 }
 
-static void iccs_kdf_squeezeblocks(uint8_t *output,
-								   size_t nblocks,
-								   kdfstate *state)
+static int append_input(
+    uint8_t **buffer,
+    size_t *len,
+    size_t *capacity,
+    const uint8_t *input,
+    size_t input_len)
 {
-	uint8_t input_with_counter[ICCS_KDF_MAX_INPUT_BYTES + 4];
+  if (input == NULL && input_len != 0u)
+    return -1;
 
+  if (len == NULL || input_len > SIZE_MAX - *len)
+    return -1;
 
-	memcpy(input_with_counter,
-		   state->input,
-		   state->input_len);
+  if (grow_buffer(buffer, capacity, *len + input_len) != 0)
+    return -1;
 
-	for (size_t i = 0; i < nblocks; ++i) {
-		store32_be(input_with_counter + state->input_len,
-				   state->counter);
-
-
-		sm3hash(
-			256,
-			input_with_counter,
-			8ULL * (state->input_len + 4),
-			output + 32 * i
-		);
-
-
-		state->counter++;
-	}
+  if (input_len != 0u)
+    memcpy(*buffer + *len, input, input_len);
+  *len += input_len;
+  return 0;
 }
-
 #endif
 
-void kdf128(uint8_t *out, int outlen, uint8_t *in, int inlen)
+int trine_xof_init(trine_xof_state *state)
 {
-#ifdef USE_ICCS
-	pseudoXOF(outlen * 8, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	shake128(out, outlen, in, inlen);
-#endif
-}
+  if (state == NULL)
+    return -1;
 
-void kdf256(uint8_t *out, int outlen, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	pseudoXOF(outlen * 8, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	shake256(out, outlen, in, inlen);
-#endif
-}
-
-void kdf512(uint8_t *out, int outlen, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	pseudoXOF(outlen * 8, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	shake512(out, outlen, in, inlen);
-#endif
-}
-
-void hash128(uint8_t *out, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	pseudoXOF(128, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	sha3_128(out, in, inlen);
-#endif
-}
-
-void hash256(uint8_t *out, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	sm3hash(256, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	sha3_256(out, in, inlen);
-#endif
-}
-
-void hash512(uint8_t *out, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	pseudohash(512, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	sha3_512(out, in, inlen);
-#endif
-}
-
-void hash1024(uint8_t *out, uint8_t *in, int inlen)
-{
-#ifdef USE_ICCS
-	pseudohash(1024, in, inlen * 8, out);
-#elif defined(USE_SHA3)
-	sha3_1024(out, in, inlen);
-#endif
-}
-
-void kdf128_absorb(kdfstate *state,
-				   const uint8_t *input,
-				   int inlen)
-{
+  memset(state, 0, sizeof(*state));
 #ifdef USE_SHA3
-	shake128_absorb(*state, input, inlen);
-#elif defined(USE_ICCS)
-	iccs_kdf_absorb(state, input, (size_t)inlen);
+  shake256_init(&state->shake);
+#endif
+  return 0;
+}
+
+int trine_xof_absorb(
+    trine_xof_state *state,
+    const uint8_t *input,
+    size_t input_len)
+{
+  if (state == NULL || (input == NULL && input_len != 0u))
+    return -1;
+
+  if (state->finalized)
+    return -1;
+
+#ifdef USE_SHA3
+  shake256_absorb(&state->shake, input, input_len);
+  return 0;
+#else
+  if (state->failed)
+    return -1;
+
+  if (append_input(
+          &state->input,
+          &state->input_len,
+          &state->input_capacity,
+          input,
+          input_len) != 0)
+  {
+    state->failed = 1;
+    return -1;
+  }
+
+  return 0;
 #endif
 }
 
-void kdf128_squeezeblocks(uint8_t *output,
-						  int nblocks,
-						  kdfstate *state)
+int trine_xof_finalize(trine_xof_state *state)
 {
+  if (state == NULL)
+    return -1;
+
+  if (state->finalized)
+    return -1;
+
 #ifdef USE_SHA3
-	shake128_squeezeblocks(output, nblocks, *state);
-#elif defined(USE_ICCS)
-	iccs_kdf_squeezeblocks(output, (size_t)nblocks, state);
+  shake256_finalize(&state->shake);
+#else
+  if (state->failed)
+    return -1;
+#endif
+
+  state->finalized = 1;
+  return 0;
+}
+
+int trine_xof_squeeze(
+    trine_xof_state *state,
+    uint8_t *output,
+    size_t output_len)
+{
+  if (state == NULL || (output == NULL && output_len != 0u))
+    return -1;
+
+  if (!state->finalized)
+    return -1;
+
+  if (output_len == 0u)
+    return 0;
+
+#ifdef USE_SHA3
+  shake256_squeeze(output, output_len, &state->shake);
+  return 0;
+#else
+  size_t required;
+  unsigned long long output_bits;
+  unsigned long long input_bits;
+
+  if (state->failed)
+    return -1;
+
+  if (output_len > SIZE_MAX - state->output_offset)
+  {
+    state->failed = 1;
+    return -1;
+  }
+  required = state->output_offset + output_len;
+
+  if (required > state->output_capacity)
+  {
+    if (grow_buffer(
+            &state->output_cache,
+            &state->output_capacity,
+            required) != 0 ||
+        size_to_bits_ull(&output_bits, state->output_capacity) != 0 ||
+        size_to_bits_ull(&input_bits, state->input_len) != 0 ||
+        pseudoXOF(
+            output_bits,
+            state->input,
+            input_bits,
+            state->output_cache) != 0)
+    {
+      state->failed = 1;
+      return -1;
+    }
+  }
+
+  memcpy(output, state->output_cache + state->output_offset, output_len);
+  state->output_offset += output_len;
+  return 0;
 #endif
 }
 
-void kdf256_absorb(kdfstate *state,
-				   const uint8_t *input,
-				   int inlen)
+void trine_xof_release(trine_xof_state *state)
 {
+  if (state == NULL)
+    return;
+
 #ifdef USE_SHA3
-	shake256_absorb(*state, input, inlen);
-#elif defined(USE_ICCS)
-	iccs_kdf_absorb(state, input, (size_t)inlen);
+  trine_clear(&state->shake, sizeof(state->shake));
+#else
+  trine_clear(state->input, state->input_capacity);
+  trine_clear(state->output_cache, state->output_capacity);
+  free(state->input);
+  free(state->output_cache);
+#endif
+  memset(state, 0, sizeof(*state));
+}
+
+int trine_xof_once(
+    uint8_t *output,
+    size_t output_len,
+    const uint8_t *input,
+    size_t input_len)
+{
+  if ((output == NULL && output_len != 0u) ||
+      (input == NULL && input_len != 0u))
+    return -1;
+
+#ifdef USE_SHA3
+  shake256(output, output_len, input, input_len);
+  return 0;
+#else
+  unsigned long long output_bits;
+  unsigned long long input_bits;
+
+  if (size_to_bits_ull(&output_bits, output_len) != 0 ||
+      size_to_bits_ull(&input_bits, input_len) != 0)
+    return -1;
+
+  return pseudoXOF(output_bits, input, input_bits, output) == 0 ? 0 : -1;
 #endif
 }
 
-void kdf256_squeezeblocks(uint8_t *output,
-						  int nblocks,
-						  kdfstate *state)
+int trine_hash_init(trine_hash_state *state)
 {
+  if (state == NULL)
+    return -1;
+
+  memset(state, 0, sizeof(*state));
 #ifdef USE_SHA3
-	shake256_squeezeblocks(output, nblocks, *state);
-#elif defined(USE_ICCS)
-	iccs_kdf_squeezeblocks(output, (size_t)nblocks, state);
+  shake256_init(&state->shake);
+#endif
+  return 0;
+}
+
+int trine_hash_absorb(
+    trine_hash_state *state,
+    const uint8_t *input,
+    size_t input_len)
+{
+  if (state == NULL || (input == NULL && input_len != 0u))
+    return -1;
+
+  if (state->finalized)
+    return -1;
+
+#ifdef USE_SHA3
+  shake256_absorb(&state->shake, input, input_len);
+  return 0;
+#else
+  if (state->failed)
+    return -1;
+
+  if (append_input(
+          &state->input,
+          &state->input_len,
+          &state->input_capacity,
+          input,
+          input_len) != 0)
+  {
+    state->failed = 1;
+    return -1;
+  }
+
+  return 0;
 #endif
 }
 
-void kdf512_absorb(kdfstate *state,
-				   const uint8_t *input,
-				   int inlen)
+int trine_hash_finalize(
+    trine_hash_state *state,
+    uint8_t *output,
+    size_t output_len)
 {
+  if (state == NULL || (output == NULL && output_len != 0u))
+    return -1;
+
+  if (state->finalized)
+    return -1;
+
 #ifdef USE_SHA3
-	shake512_absorb(*state, input, inlen);
-#elif defined(USE_ICCS)
-	iccs_kdf_absorb(state, input, (size_t)inlen);
+  shake256_finalize(&state->shake);
+  shake256_squeeze(output, output_len, &state->shake);
+  state->finalized = 1;
+  return 0;
+#else
+  unsigned long long input_bits;
+  int ret;
+
+  if (state->failed)
+    return -1;
+
+  if (size_to_bits_ull(&input_bits, state->input_len) != 0)
+  {
+    state->failed = 1;
+    return -1;
+  }
+
+  if (output_len == 32u)
+    ret = sm3hash(256, state->input, input_bits, output);
+  else if (output_len == 64u)
+    ret = pseudohash(512, state->input, input_bits, output);
+  else if (output_len == 128u)
+    ret = pseudohash(1024, state->input, input_bits, output);
+  else
+    ret = -1;
+
+  if (ret != 0)
+  {
+    state->failed = 1;
+    return -1;
+  }
+
+  state->finalized = 1;
+  return 0;
 #endif
 }
 
-void kdf512_squeezeblocks(uint8_t *output,
-						  int nblocks,
-						  kdfstate *state)
+void trine_hash_release(trine_hash_state *state)
 {
+  if (state == NULL)
+    return;
+
 #ifdef USE_SHA3
-	shake512_squeezeblocks(output, nblocks, *state);
-#elif defined(USE_ICCS)
-	iccs_kdf_squeezeblocks(output, (size_t)nblocks, state);
+  trine_clear(&state->shake, sizeof(state->shake));
+#else
+  trine_clear(state->input, state->input_capacity);
+  free(state->input);
 #endif
+  memset(state, 0, sizeof(*state));
 }

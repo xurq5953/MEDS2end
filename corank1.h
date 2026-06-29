@@ -1,7 +1,7 @@
 #ifndef CORANK1_H
 #define CORANK1_H
 
-#include "fips202.h"
+#include "hashkdf.h"
 #include "params.h"
 
 /*
@@ -17,10 +17,10 @@
  *   1 <= n && n <= TRINE_n
  *   M contains n consecutive row-major n x n slices
  *   out_u provides n writable field elements
- *   shake is initialized for SHAKE256 squeezing
+ *   xof is initialized and finalized for squeezing
  *   out_u does not overlap M
  *
- * The function consumes and advances shake.
+ * The function consumes and advances xof.
  * The function is variable-time.
  *
  * On invalid input, out_u is left unchanged.
@@ -32,7 +32,7 @@
 int corank1_cal_vartime(
     Fq *out_u,
     const Fq *M,
-    keccak_state *shake,
+    trine_xof_state *xof,
     int n);
 
 #endif
