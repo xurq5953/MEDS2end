@@ -7,7 +7,19 @@
 #define CRYPTO_PUBLICKEYBYTES TRINE_PK_BYTES
 #define CRYPTO_BYTES TRINE_SIG_BYTES
 
-#define CRYPTO_ALGNAME "MEDS9923"
+#if PARAMS == 1
+#define CRYPTO_ALGNAME "MEDS2endGen-Balanced-I"
+#elif PARAMS == 2
+#define CRYPTO_ALGNAME "MEDS2endGen-Balanced-III"
+#elif PARAMS == 3
+#define CRYPTO_ALGNAME "MEDS2endGen-Balanced-V"
+#elif PARAMS == 4
+#define CRYPTO_ALGNAME "MEDS2endGen-ShortSig-I"
+#elif PARAMS == 5
+#define CRYPTO_ALGNAME "MEDS2endGen-ShortSig-III"
+#elif PARAMS == 6
+#define CRYPTO_ALGNAME "MEDS2endGen-ShortSig-V"
+#endif
 
 int crypto_sign_keypair(
     unsigned char *pk,
