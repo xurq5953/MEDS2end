@@ -119,7 +119,6 @@ Inspect the actual repository before editing. Expected core files include:
 - `bitstream.c`, `bitstream.h`: field-element serialization;
 - `fips202.c`, `fips202.h`: SHAKE/XOF implementation;
 - `randombytes.c`, `randombytes.h`: randomness interface;
-- `bench.c`: benchmark target;
 - `test_speed/`: cycle-count speed tests for protocol and core operators;
 - `PQCgenKAT_sign.c`: KAT generator;
 - `Makefile`;
@@ -880,13 +879,13 @@ TRINE_PK_BYTES = 3188776
 
 Do not change this to the document's cross-triform packed value without a separate serialization migration plan.
 
-This phase may add or modify production, CMake, benchmark, KAT, speed-test, and documentation files needed for:
+This phase may add or modify production, CMake, KAT, speed-test, and documentation files needed for:
 
 - compile-time parameter selection;
 - per-parameter derived size checks;
 - isolated CMake libraries and entry points;
 - removal of large parameter-dependent stack allocations;
-- safe benchmark/KAT/speed operation across large parameters.
+- safe KAT/speed operation across large parameters.
 
 Expected touched files include:
 
@@ -911,7 +910,6 @@ trine_codec.h
 util.h
 util.c
 meds.c
-bench.c
 test_speed/test_speed.c
 CMakeLists.txt
 PQCgenKAT_sign.c
@@ -942,7 +940,6 @@ meds2endgen_shortsig_i
 meds2endgen_shortsig_iii
 meds2endgen_shortsig_v
 
-bench_<suffix>
 kat_<suffix>
 speed_<suffix>
 ```
@@ -1675,17 +1672,11 @@ Run KAT:
 make KAT
 ```
 
-Run benchmark:
-
-```sh
-make BENCH
-```
-
 The current default build is expected to include:
 
 ```text
-bench
 PQCgenKAT_sign
+build/test_speed
 ```
 
 Additional test executables may be conditionally present.
@@ -1716,16 +1707,14 @@ Do not commit:
 The production branch should retain:
 
 - production source code;
-- benchmark code;
 - speed test code under `test_speed/`;
 - KAT generator;
 - essential build files.
 
-`master` should contain only KAT and speed/benchmark test entry points:
+`master` should contain only KAT and speed test entry points:
 
 ```text
 PQCgenKAT_sign.c
-bench.c
 test_speed/**
 ```
 

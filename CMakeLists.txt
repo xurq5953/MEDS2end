@@ -41,13 +41,11 @@ set(COMMON_SOURCES
 )
 
 set(TRINE_LIB_TARGETS)
-set(TRINE_BENCH_TARGETS)
 set(TRINE_KAT_TARGETS)
 set(TRINE_SPEED_TARGETS)
 
 function(add_trine_parameter_set suffix param_id)
   set(lib_target "meds2endgen_${suffix}")
-  set(bench_target "bench_${suffix}")
   set(kat_target "kat_${suffix}")
   set(speed_target "speed_${suffix}")
 
@@ -62,11 +60,6 @@ function(add_trine_parameter_set suffix param_id)
     "${CMAKE_CURRENT_SOURCE_DIR}/NIST"
   )
   target_link_libraries(${lib_target} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-
-  add_executable(${bench_target} bench.c)
-  target_compile_options(${bench_target} PRIVATE ${COMMON_COMPILE_OPTIONS})
-  target_compile_definitions(${bench_target} PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-  target_link_libraries(${bench_target} PRIVATE ${lib_target})
 
   add_executable(${kat_target} PQCgenKAT_sign.c)
   target_compile_options(${kat_target} PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -85,12 +78,6 @@ function(add_trine_parameter_set suffix param_id)
   )
   target_link_libraries(${speed_target} PRIVATE ${lib_target})
 
-  add_custom_target("run_bench_${suffix}"
-    COMMAND "$<TARGET_FILE:${bench_target}>" 1
-    DEPENDS ${bench_target}
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-  )
-
   add_custom_target("run_kat_${suffix}"
     COMMAND "$<TARGET_FILE:${kat_target}>"
     DEPENDS ${kat_target}
@@ -104,7 +91,6 @@ function(add_trine_parameter_set suffix param_id)
   )
 
   set(TRINE_LIB_TARGETS ${TRINE_LIB_TARGETS} ${lib_target} PARENT_SCOPE)
-  set(TRINE_BENCH_TARGETS ${TRINE_BENCH_TARGETS} ${bench_target} PARENT_SCOPE)
   set(TRINE_KAT_TARGETS ${TRINE_KAT_TARGETS} ${kat_target} PARENT_SCOPE)
   set(TRINE_SPEED_TARGETS ${TRINE_SPEED_TARGETS} ${speed_target} PARENT_SCOPE)
 endfunction()
@@ -119,17 +105,15 @@ add_trine_parameter_set(shortsig_v 6)
 add_custom_target(all_parameter_sets
   DEPENDS
     ${TRINE_LIB_TARGETS}
-    ${TRINE_BENCH_TARGETS}
     ${TRINE_KAT_TARGETS}
     ${TRINE_SPEED_TARGETS}
 )
 
-add_custom_target(all_bench_targets DEPENDS ${TRINE_BENCH_TARGETS})
 add_custom_target(all_kat_targets DEPENDS ${TRINE_KAT_TARGETS})
 add_custom_target(all_speed_targets DEPENDS ${TRINE_SPEED_TARGETS})
 
 add_custom_target(default ALL
-  DEPENDS bench_balanced_i kat_balanced_i speed_balanced_i
+  DEPENDS kat_balanced_i speed_balanced_i
 )
 
 set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES
