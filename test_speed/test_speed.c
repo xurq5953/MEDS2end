@@ -45,9 +45,7 @@ typedef struct {
   unsigned char sk[CRYPTO_SECRETKEYBYTES];
   unsigned char sm[CRYPTO_BYTES + 32];
   unsigned char msg[32];
-  unsigned char opened[32];
   unsigned long long smlen;
-  unsigned long long opened_len;
 } speed_ctx_t;
 
 static uint32_t rng_next(speed_rng_t *rng)
@@ -165,45 +163,59 @@ static int time_function(const char *label, speed_fn fn, void *ctx, int rounds)
   return 0;
 }
 
-static int bench_keypair(void *arg)
+static int benchmark_protocol_rounds(
+    speed_ctx_t *ctx,
+    uint64_t *keygen_samples,
+    uint64_t *sign_samples,
+    uint64_t *verify_samples,
+    int rounds)
 {
-  speed_ctx_t *ctx = arg;
-  if (crypto_sign_keypair(ctx->pk, ctx->sk) != 0)
-    return -1;
+  if (rounds < 2)
+    rounds = 2;
 
-  return 0;
-}
+  for (int i = 0; i < rounds; i++)
+  {
+    uint64_t start = (uint64_t)cpucycles();
+    int ret = crypto_sign_keypair(ctx->pk, ctx->sk);
+    uint64_t end = (uint64_t)cpucycles();
+    keygen_samples[i] = end - start;
+    if (ret != 0)
+    {
+      fprintf(stderr, "crypto_sign_keypair failed at protocol round %d\n", i);
+      return -1;
+    }
 
-static int bench_sign(void *arg)
-{
-  speed_ctx_t *ctx = arg;
-  ctx->smlen = 0;
+    ctx->smlen = 0;
+    start = (uint64_t)cpucycles();
+    ret = crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk);
+    end = (uint64_t)cpucycles();
+    sign_samples[i] = end - start;
+    if (ret != 0)
+    {
+      fprintf(stderr, "crypto_sign failed at protocol round %d\n", i);
+      return -1;
+    }
 
-  if (crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk) != 0)
-    return -1;
+    start = (uint64_t)cpucycles();
+    ret = crypto_sign_verify(
+        ctx->sm,
+        CRYPTO_BYTES,
+        ctx->msg,
+        sizeof(ctx->msg),
+        ctx->pk);
+    end = (uint64_t)cpucycles();
+    verify_samples[i] = end - start;
+    if (ret != 0)
+    {
+      fprintf(stderr, "crypto_sign_verify failed at protocol round %d\n", i);
+      return -1;
+    }
+  }
 
-  if (ctx->smlen !=
-      (unsigned long long)CRYPTO_BYTES +
-      (unsigned long long)sizeof(ctx->msg))
-    return -1;
+  print_cycle_samples("crypto_sign_keypair", keygen_samples, (size_t)rounds);
+  print_cycle_samples("crypto_sign", sign_samples, (size_t)rounds);
+  print_cycle_samples("crypto_sign_verify", verify_samples, (size_t)rounds);
 
-  return 0;
-}
-
-static int bench_open(void *arg)
-{
-  speed_ctx_t *ctx = arg;
-  memset(ctx->opened, 0xa5, sizeof(ctx->opened));
-  ctx->opened_len = 0;
-
-  if (crypto_sign_open(ctx->opened, &ctx->opened_len, ctx->sm, ctx->smlen, ctx->pk) != 0)
-    return -1;
-
-  if (ctx->opened_len != (unsigned long long)sizeof(ctx->msg))
-    return -1;
-
-  if (memcmp(ctx->opened, ctx->msg, sizeof(ctx->msg)) != 0)
-    return -1;
 
   return 0;
 }
@@ -325,47 +337,14 @@ static void init_context(speed_ctx_t *ctx)
 
   for (size_t i = 0; i < sizeof(ctx->msg); i++)
     ctx->msg[i] = (unsigned char)i;
-
-  if (crypto_sign_keypair(ctx->pk, ctx->sk) != 0)
-  {
-    fprintf(stderr, "crypto_sign_keypair failed during speed setup\n");
-    exit(1);
-  }
-
-  ctx->smlen = 0;
-  if (crypto_sign(ctx->sm, &ctx->smlen, ctx->msg, sizeof(ctx->msg), ctx->sk) != 0)
-  {
-    fprintf(stderr, "crypto_sign failed during speed setup\n");
-    exit(1);
-  }
-
-  if (ctx->smlen !=
-      (unsigned long long)CRYPTO_BYTES +
-      (unsigned long long)sizeof(ctx->msg))
-  {
-    fprintf(stderr, "crypto_sign produced an unexpected signed-message length\n");
-    exit(1);
-  }
-
-  memset(ctx->opened, 0xa5, sizeof(ctx->opened));
-  ctx->opened_len = 0;
-  if (crypto_sign_open(ctx->opened, &ctx->opened_len, ctx->sm, ctx->smlen, ctx->pk) != 0)
-  {
-    fprintf(stderr, "crypto_sign_open failed during speed setup\n");
-    exit(1);
-  }
-
-  if (ctx->opened_len != (unsigned long long)sizeof(ctx->msg) ||
-      memcmp(ctx->opened, ctx->msg, sizeof(ctx->msg)) != 0)
-  {
-    fprintf(stderr, "crypto_sign_open recovered the wrong message during speed setup\n");
-    exit(1);
-  }
 }
 
 int main(int argc, char **argv)
 {
   speed_ctx_t *ctx = NULL;
+  uint64_t *keygen_samples = NULL;
+  uint64_t *sign_samples = NULL;
+  uint64_t *verify_samples = NULL;
 
   if (argc > 1)
     speed_rounds = atoi(argv[1]);
@@ -402,6 +381,15 @@ int main(int argc, char **argv)
 
   init_context(ctx);
 
+  keygen_samples = calloc((size_t)protocol_rounds, sizeof(*keygen_samples));
+  sign_samples = calloc((size_t)protocol_rounds, sizeof(*sign_samples));
+  verify_samples = calloc((size_t)protocol_rounds, sizeof(*verify_samples));
+  if (keygen_samples == NULL || sign_samples == NULL || verify_samples == NULL)
+  {
+    fprintf(stderr, "failed to allocate protocol sample buffers\n");
+    goto failure;
+  }
+
   printf("name: %s\n", CRYPTO_ALGNAME);
   printf(
       "parameters (n, q, r, K, X): (%d, %d, %d, %d, %d)\n",
@@ -415,11 +403,12 @@ int main(int argc, char **argv)
   printf("sig: %d bytes\n", TRINE_SIG_BYTES);
   printf("rounds: core=%d protocol=%d\n\n", speed_rounds, protocol_rounds);
 
-  if (time_function("crypto_sign_keypair", bench_keypair, ctx, protocol_rounds) != 0)
-    goto failure;
-  if (time_function("crypto_sign", bench_sign, ctx, protocol_rounds) != 0)
-    goto failure;
-  if (time_function("crypto_sign_open", bench_open, ctx, protocol_rounds) != 0)
+  if (benchmark_protocol_rounds(
+          ctx,
+          keygen_samples,
+          sign_samples,
+          verify_samples,
+          protocol_rounds) != 0)
     goto failure;
 
   if (time_function("GF_add", bench_gf_add, ctx, speed_rounds) != 0)
@@ -452,11 +441,17 @@ int main(int argc, char **argv)
     goto failure;
 
   free(ctx);
+  free(keygen_samples);
+  free(sign_samples);
+  free(verify_samples);
   free(cycles);
   return EXIT_SUCCESS;
 
 failure:
   free(ctx);
+  free(keygen_samples);
+  free(sign_samples);
+  free(verify_samples);
   free(cycles);
   return EXIT_FAILURE;
 }

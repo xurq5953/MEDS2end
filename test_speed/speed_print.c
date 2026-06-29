@@ -34,16 +34,10 @@ static long double average(const uint64_t *values, size_t count)
 
 void print_results(const char *label, uint64_t *timestamps, size_t timestamp_count)
 {
-    static uint64_t overhead = UINT64_MAX;
-    size_t invalid_samples = 0;
-
     if (timestamp_count < 2) {
         fprintf(stderr, "ERROR: Need at least two timestamps.\n");
         return;
     }
-
-    if (overhead == UINT64_MAX)
-        overhead = cpucycles_overhead();
 
     const size_t sample_count = timestamp_count - 1;
     for (size_t i = 0; i < sample_count; ++i) {
@@ -52,17 +46,36 @@ void print_results(const char *label, uint64_t *timestamps, size_t timestamp_cou
             return;
         }
 
-        const uint64_t elapsed = timestamps[i + 1] - timestamps[i];
-        if (elapsed <= overhead) {
-            timestamps[i] = 0;
+        timestamps[i] = timestamps[i + 1] - timestamps[i];
+    }
+
+    print_cycle_samples(label, timestamps, sample_count);
+}
+
+void print_cycle_samples(const char *label, uint64_t *samples, size_t sample_count)
+{
+    static uint64_t overhead = UINT64_MAX;
+    size_t invalid_samples = 0;
+
+    if (sample_count == 0) {
+        fprintf(stderr, "ERROR: Need at least one sample.\n");
+        return;
+    }
+
+    if (overhead == UINT64_MAX)
+        overhead = cpucycles_overhead();
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        if (samples[i] <= overhead) {
+            samples[i] = 0;
             ++invalid_samples;
         } else {
-            timestamps[i] = elapsed - overhead;
+            samples[i] -= overhead;
         }
     }
 
-    const long double avg_ticks = average(timestamps, sample_count);
-    const uint64_t median_ticks = median(timestamps, sample_count);
+    const long double avg_ticks = average(samples, sample_count);
+    const uint64_t median_ticks = median(samples, sample_count);
     const double tsc_hz = cpucycles_per_second();
 
     printf("%s\n", label);
