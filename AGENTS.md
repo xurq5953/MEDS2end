@@ -857,23 +857,36 @@ Do not overload legacy `pi()` or `phi()` semantics without auditing all callers.
 
 ---
 
-# Current Balanced TRINE Parameter Sync Phase
+# Current All-Parameter-Set Build Phase
 
-The current focused production phase is syncing the implementation to the Balanced-TRINE I parameter set and validating speed-test correctness.
+The current focused production phase is supporting all six documented TRINE parameter sets through compile-time `PARAMS` selection and isolated CMake targets.
 
-The active parameter set is:
+The supported parameter sets are:
 
 ```text
-(n, q, r, K, X) = (22, 4093, 138, 52, 1)
-TRINE_lambda = 128
+PARAMS=1  Balanced-I    (lambda,n,q,r,K,X) = (128,22,4093,138,52,1)
+PARAMS=2  Balanced-III  (lambda,n,q,r,K,X) = (256,40,4093,271,104,1)
+PARAMS=3  Balanced-V    (lambda,n,q,r,K,X) = (512,81,4093,534,211,1)
+PARAMS=4  ShortSig-I    (lambda,n,q,r,K,X) = (128,22,4093,61,36,4)
+PARAMS=5  ShortSig-III  (lambda,n,q,r,K,X) = (256,40,4093,116,76,4)
+PARAMS=6  ShortSig-V    (lambda,n,q,r,K,X) = (512,81,4093,232,149,4)
 ```
 
-This phase may add or modify production, benchmark, and speed-test files needed for:
+`PARAMS=6` intentionally uses the current code serialization rule with each public trilinear form byte-aligned independently:
 
-- parameter naming and derived sizes;
-- parameter-related loop bounds and array lengths;
-- benchmark parameter output;
-- speed-test return-value and recovered-message validation.
+```text
+TRINE_PK_BYTES = 3188776
+```
+
+Do not change this to the document's cross-triform packed value without a separate serialization migration plan.
+
+This phase may add or modify production, CMake, benchmark, KAT, speed-test, and documentation files needed for:
+
+- compile-time parameter selection;
+- per-parameter derived size checks;
+- isolated CMake libraries and entry points;
+- removal of large parameter-dependent stack allocations;
+- safe benchmark/KAT/speed operation across large parameters.
 
 Expected touched files include:
 
@@ -900,17 +913,14 @@ util.c
 meds.c
 bench.c
 test_speed/test_speed.c
+CMakeLists.txt
+PQCgenKAT_sign.c
 AGENTS.md
 ```
 
 This phase must not modify:
 
 ```text
-bitstream.c
-bitstream.h
-randombytes.c
-randombytes.h
-algorithm name
 KeyGen mathematics
 Sign transcript order
 Verify challenge comparison rule
@@ -919,28 +929,41 @@ CF algorithm
 Corank1Cal sampling algorithm
 seed expansion domain strings
 codec bit order
+cross-triform public-key bit packing
 ```
 
-The active TRINE API sizes are:
+CMake must build separate objects for each parameter set. The expected production targets are:
 
 ```text
-TRINE_PK_BYTES  = 16004
-TRINE_SK_BYTES  = 32
-TRINE_SIG_BYTES = 3156
+meds2endgen_balanced_i
+meds2endgen_balanced_iii
+meds2endgen_balanced_v
+meds2endgen_shortsig_i
+meds2endgen_shortsig_iii
+meds2endgen_shortsig_v
+
+bench_<suffix>
+kat_<suffix>
+speed_<suffix>
 ```
 
-`CRYPTO_ALGNAME` must remain unchanged.
+Use:
 
-`TRINE_X` means the number of non-base public forms. With `TRINE_X = 1`, the only non-base form is `phi_0`, and the base form is `phi_1`:
+```sh
+cmake -S . -B cmake-build-all -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build-all --target all_parameter_sets -j
+```
+
+Production branches must not add large `tests/**` suites. Detailed all-parameter tests belong on `test/all-parameter-sets`.
+
+`TRINE_X` means the number of non-base public forms, and the base form index is always `TRINE_X`:
 
 ```text
-TRINE_NONBASE_COUNT   = 1
-TRINE_FORM_COUNT      = 2
-TRINE_BASE_FORM_INDEX = 1
-challenge values      = {0, 1}
+TRINE_NONBASE_COUNT   = TRINE_X
+TRINE_FORM_COUNT      = TRINE_X + 1
+TRINE_BASE_FORM_INDEX = TRINE_X
+challenge values      = {0, ..., TRINE_X}
 ```
-
-Exactly 52 signing rounds must use challenge `0`, and exactly 86 rounds must use challenge `1`.
 
 KeyGen must implement:
 
